@@ -5,19 +5,22 @@ import {
   Sparkles,
   Dumbbell,
   HeartPulse,
-  ChevronDown,
-  ChevronUp,
   Send,
   Bell,
   CheckCircle2,
   FlaskConical,
   UserCheck,
+  X,
 } from "lucide-react";
 import type { AthleteProfile, DailyCoachBriefing } from "@/lib/coach";
+
+export type CoachDrawerMode = "none" | "habits" | "science";
 
 interface SmartCoachBannerProps {
   briefing: DailyCoachBriefing;
   profile: AthleteProfile;
+  openDrawer: CoachDrawerMode;
+  onChangeDrawer: (mode: CoachDrawerMode) => void;
   onUpdateProfile: (next: AthleteProfile) => void;
   onApplyScienceUpgrade: () => Promise<void>;
   onStartGym: () => void;
@@ -28,15 +31,14 @@ interface SmartCoachBannerProps {
 export function SmartCoachBanner({
   briefing,
   profile,
+  openDrawer,
+  onChangeDrawer,
   onUpdateProfile,
   onApplyScienceUpgrade,
   onStartGym,
   onStartCardio,
   onOpenMobileAndSignal,
 }: SmartCoachBannerProps) {
-  const [openDrawer, setOpenDrawer] = useState<"none" | "habits" | "science">(
-    "none"
-  );
   const [notifStatus, setNotifStatus] = useState<string | null>(null);
   const [upgradeDone, setUpgradeDone] = useState(false);
 
@@ -67,7 +69,7 @@ export function SmartCoachBanner({
         border: "1px solid rgba(203, 166, 247, 0.32)",
       }}
     >
-      {/* Top Row: Compact Coach Headline + Actions */}
+      {/* Top Row: Ultra-Clean Coach Headline + Primary Workout Button */}
       <div
         style={{
           display: "flex",
@@ -167,7 +169,7 @@ export function SmartCoachBanner({
             <button
               type="button"
               className="pastel-btn btn-lavender"
-              style={{ padding: "0.52rem 1rem", fontSize: "0.81rem" }}
+              style={{ padding: "0.55rem 1.05rem", fontSize: "0.82rem" }}
               onClick={onStartGym}
             >
               <Dumbbell size={15} />
@@ -181,7 +183,7 @@ export function SmartCoachBanner({
             <button
               type="button"
               className="pastel-btn btn-mint"
-              style={{ padding: "0.52rem 1rem", fontSize: "0.81rem" }}
+              style={{ padding: "0.55rem 1.05rem", fontSize: "0.82rem" }}
               onClick={onStartCardio}
             >
               <HeartPulse size={15} />
@@ -189,52 +191,20 @@ export function SmartCoachBanner({
             </button>
           )}
 
-          <button
-            type="button"
-            className={`pill-tab ${openDrawer === "science" ? "active" : ""}`}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 5,
-              padding: "0.46rem 0.8rem",
-            }}
-            onClick={() =>
-              setOpenDrawer((d) => (d === "science" ? "none" : "science"))
-            }
-          >
-            <FlaskConical size={14} />
-            <span>Studien &amp; Plan-Analyse</span>
-            {openDrawer === "science" ? (
-              <ChevronUp size={13} />
-            ) : (
-              <ChevronDown size={13} />
-            )}
-          </button>
-
-          <button
-            type="button"
-            className={`pill-tab ${openDrawer === "habits" ? "active" : ""}`}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 4,
-              padding: "0.46rem 0.75rem",
-            }}
-            onClick={() =>
-              setOpenDrawer((d) => (d === "habits" ? "none" : "habits"))
-            }
-          >
-            <span>Wochen-Verhalten</span>
-            {openDrawer === "habits" ? (
-              <ChevronUp size={13} />
-            ) : (
-              <ChevronDown size={13} />
-            )}
-          </button>
+          {openDrawer !== "none" && (
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={() => onChangeDrawer("none")}
+              title="Ansicht schließen"
+            >
+              <X size={18} />
+            </button>
+          )}
         </div>
       </div>
 
-      {/* DRAWER 1: LEARNED WEEKDAY HABIT RHYTHM (Top-K only!) */}
+      {/* DRAWER 1: LEARNED WEEKDAY HABIT RHYTHM (Opened via Burger Menu) */}
       {openDrawer === "habits" && (
         <div
           className="smooth-unfold"
@@ -249,20 +219,29 @@ export function SmartCoachBanner({
         >
           <div
             style={{
-              fontSize: "0.78rem",
-              color: "var(--text-secondary)",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: "0.5rem",
             }}
           >
-            <strong>Wie der Coach aus deinem Verhalten lernt:</strong> Statt
-            jeden Tag mit 1 Training als Sporttag zu werten, filtert der
-            Algorithmus deine{" "}
-            <strong style={{ color: "var(--pastel-lavender)" }}>
-              Top-{Math.max(1, Math.round(briefing.learnedGymPerWeek))} Stamm-Trainingstage
-            </strong>{" "}
-            heraus (aus 11 Sessions: <strong>Donnerstag</strong> &amp;{" "}
-            <strong>Sonntag/Freitag</strong>, mit Ø{" "}
-            <strong>{briefing.learnedAvgRestDays} Tagen Pause</strong> zwischen
-            Einheiten):
+            <div
+              style={{
+                fontSize: "0.79rem",
+                color: "var(--text-secondary)",
+              }}
+            >
+              <strong>Wie der Coach aus deinem Verhalten lernt:</strong> Statt
+              jeden Tag mit 1 Training als Sporttag zu werten, filtert der
+              Algorithmus deine{" "}
+              <strong style={{ color: "var(--pastel-lavender)" }}>
+                Top-{Math.max(1, Math.round(briefing.learnedGymPerWeek))} Stamm-Trainingstage
+              </strong>{" "}
+              heraus (aus 11 Sessions: <strong>Donnerstag</strong> &amp;{" "}
+              <strong>Sonntag/Freitag</strong>, mit Ø{" "}
+              <strong>{briefing.learnedAvgRestDays} Tagen Pause</strong> zwischen
+              Einheiten):
+            </div>
           </div>
 
           <div
@@ -324,7 +303,7 @@ export function SmartCoachBanner({
                 onClick={onOpenMobileAndSignal}
               >
                 <Send size={13} style={{ display: "inline", marginRight: 4 }} />
-                Signal-Bot testen
+                Signal 06:00 Uhr Bot
               </button>
             </div>
           </div>
@@ -346,7 +325,7 @@ export function SmartCoachBanner({
         </div>
       )}
 
-      {/* DRAWER 2: SPORTS SCIENCE LAB & ATHLETE PROFILE */}
+      {/* DRAWER 2: SPORTS SCIENCE LAB & ATHLETE PROFILE (Opened via Burger Menu) */}
       {openDrawer === "science" && (
         <div
           className="smooth-unfold"
@@ -359,6 +338,30 @@ export function SmartCoachBanner({
             gap: "1rem",
           }}
         >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                fontSize: "0.9rem",
+                fontWeight: 800,
+                color: "var(--pastel-lavender)",
+              }}
+            >
+              <FlaskConical size={16} />
+              <span>
+                Sportwissenschaftliches Labor &amp; Progression-Analyse
+              </span>
+            </div>
+          </div>
+
           {/* Athlete Profile Bar */}
           <div
             style={{

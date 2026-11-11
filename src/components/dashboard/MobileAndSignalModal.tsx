@@ -8,17 +8,22 @@ import {
   ChevronDown,
   ChevronUp,
   ExternalLink,
+  Clock,
+  Sparkles,
 } from "lucide-react";
 import type { DailyCoachBriefing } from "@/lib/coach";
 
-interface MobileAndSignalModalProps {
-  briefing: DailyCoachBriefing;
-  onClose: () => void;
+export const SIGNAL_PREFS_KEY = "schym_signal_prefs_v1";
+
+export interface SignalPreferences {
+  phone: string;
+  apiKey: string;
+  autoEnabled: boolean;
+  autoTime: string;
+  lastAutoSentDate?: string;
 }
 
-const SIGNAL_PREFS_KEY = "schym_signal_prefs_v1";
-
-function normalizePhoneOrUuid(raw: string): string {
+export function normalizePhoneOrUuid(raw: string): string {
   const cleaned = raw.trim().replace(/\s+/g, "");
   if (/^0[1-9][0-9]{6,14}$/.test(cleaned)) {
     return `+49${cleaned.slice(1)}`;
@@ -29,44 +34,102 @@ function normalizePhoneOrUuid(raw: string): string {
   return cleaned;
 }
 
+export function buildCallMeBotSignalUrl(
+  host: "signal.callmebot.com" | "api.callmebot.com",
+  phoneOrUuid: string,
+  apiKey: string,
+  text: string
+): string {
+  const cleanPhone = normalizePhoneOrUuid(phoneOrUuid);
+  const url = new URL(`https://${host}/signal/send.php`);
+  url.searchParams.set("phone", cleanPhone);
+  url.searchParams.set("apikey", apiKey.trim());
+  url.searchParams.set("text", text);
+  return url.toString();
+}
+
+export async function dispatchSignalFromBrowser(
+  phoneOrUuid: string,
+  apiKey: string,
+  text: string
+): Promise<boolean> {
+  const primaryUrl = buildCallMeBotSignalUrl(
+    "signal.callmebot.com",
+    phoneOrUuid,
+    apiKey,
+    text
+  );
+  try {
+    await fetch(primaryUrl, { mode: "no-cors", cache: "no-store" });
+    return true;
+  } catch {
+    try {
+      const fallbackUrl = buildCallMeBotSignalUrl(
+        "api.callmebot.com",
+        phoneOrUuid,
+        apiKey,
+        text
+      );
+      await fetch(fallbackUrl, { mode: "no-cors", cache: "no-store" });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+interface MobileAndSignalModalProps {
+  briefing: DailyCoachBriefing;
+  prefs: SignalPreferences;
+  onSavePrefs: (next: SignalPreferences) => void;
+  onClose: () => void;
+}
+
 export function MobileAndSignalModal({
   briefing,
+  prefs,
+  onSavePrefs,
   onClose,
 }: MobileAndSignalModalProps) {
-  const [recipientPhone, setRecipientPhone] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [showPreview, setShowPreview] = useState(false);
+  const [recipientPhone, setRecipientPhone] = useState(prefs.phone);
+  const [apiKey, setApiKey] = useState(prefs.apiKey);
+  const [autoEnabled, setAutoEnabled] = useState(prefs.autoEnabled);
+  const [autoTime, setAutoTime] = useState(prefs.autoTime || "06:00");
+  const [showPreview, setShowPreview] = useState(true);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
 
   useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(SIGNAL_PREFS_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as {
-          phone?: string;
-          apiKey?: string;
-        };
-        if (parsed.phone) setRecipientPhone(parsed.phone);
-        if (parsed.apiKey) setApiKey(parsed.apiKey);
-      }
-    } catch {
-      // ignore storage read error
-    }
-  }, []);
+    setRecipientPhone(prefs.phone);
+    setApiKey(prefs.apiKey);
+    setAutoEnabled(prefs.autoEnabled);
+    setAutoTime(prefs.autoTime || "06:00");
+  }, [prefs]);
 
   // Smart helper: if the user pastes the entire CallMeBot URL from Signal, extract phone/UUID & apikey automatically!
   function handleSmartInput(field: "phone" | "key", value: string) {
     if (value.includes("phone=") && value.includes("apikey=")) {
       const phoneMatch = /[?&]phone=([^&\s]+)/.exec(value);
       const keyMatch = /[?&]apikey=([^&\s]+)/.exec(value);
-      if (phoneMatch?.[1]) {
-        setRecipientPhone(decodeURIComponent(phoneMatch[1]));
-      }
-      if (keyMatch?.[1]) {
-        setApiKey(decodeURIComponent(keyMatch[1]));
-      }
+      const extractedPhone = phoneMatch?.[1]
+        ? decodeURIComponent(phoneMatch[1])
+        : recipientPhone;
+      const extractedKey = keyMatch?.[1]
+        ? decodeURIComponent(keyMatch[1])
+        : apiKey;
+      setRecipientPhone(extractedPhone);
+      setApiKey(extractedKey);
+      onSavePrefs({
+        ...prefs,
+        phone: normalizePhoneOrUuid(extractedPhone),
+        apiKey: extractedKey.trim(),
+        autoEnabled,
+        autoTime,
+      });
+      setStatusMsg(
+        "CallMeBot-Link automatisch erkannt und UUID + API-Key gespeichert!"
+      );
       return;
     }
     if (field === "phone") {
@@ -76,13 +139,21 @@ export function MobileAndSignalModal({
     }
   }
 
-  function buildCallMeBotUrl(host: "signal.callmebot.com" | "api.callmebot.com"): string {
+  function handleSaveConfigOnly() {
     const cleanPhone = normalizePhoneOrUuid(recipientPhone);
-    const url = new URL(`https://${host}/signal/send.php`);
-    url.searchParams.set("phone", cleanPhone);
-    url.searchParams.set("apikey", apiKey.trim());
-    url.searchParams.set("text", briefing.signalMessageText);
-    return url.toString();
+    const cleanKey = apiKey.trim();
+    onSavePrefs({
+      ...prefs,
+      phone: cleanPhone,
+      apiKey: cleanKey,
+      autoEnabled,
+      autoTime,
+    });
+    setStatusMsg(
+      autoEnabled
+        ? `Gespeichert! Dein Morgen-Briefing wird täglich ab ${autoTime} Uhr automatisch an Signal gesendet.`
+        : "Signal-Einstellungen gespeichert."
+    );
   }
 
   async function handleSendSignal(e: React.FormEvent) {
@@ -103,41 +174,31 @@ export function MobileAndSignalModal({
     setIsSending(true);
     setRecipientPhone(cleanPhone);
 
-    try {
-      window.localStorage.setItem(
-        SIGNAL_PREFS_KEY,
-        JSON.stringify({
-          phone: cleanPhone,
-          apiKey: cleanKey,
-        })
-      );
-    } catch {
-      // ignore storage write error
-    }
+    const todayIso = new Date().toISOString().slice(0, 10);
+    onSavePrefs({
+      phone: cleanPhone,
+      apiKey: cleanKey,
+      autoEnabled,
+      autoTime,
+      lastAutoSentDate: todayIso,
+    });
 
-    try {
-      // Dispatch directly from the user's browser to CallMeBot's official Signal gateway
-      const primaryUrl = buildCallMeBotUrl("signal.callmebot.com");
-      await fetch(primaryUrl, { mode: "no-cors", cache: "no-store" });
+    const ok = await dispatchSignalFromBrowser(
+      cleanPhone,
+      cleanKey,
+      briefing.signalMessageText
+    );
 
+    if (ok) {
       setStatusMsg(
-        `Signal-Nachricht an „${cleanPhone}“ gesendet! Checke deine Signal-App 💬`
+        `Morgen-Briefing an „${cleanPhone}“ gesendet & 06:00-Uhr-Automatik aktiviert! Checke Signal 💬`
       );
-    } catch {
-      try {
-        const fallbackUrl = buildCallMeBotUrl("api.callmebot.com");
-        await fetch(fallbackUrl, { mode: "no-cors", cache: "no-store" });
-        setStatusMsg(
-          `Signal-Nachricht an „${cleanPhone}“ gesendet! Checke deine Signal-App 💬`
-        );
-      } catch {
-        setErrorMsg(
-          "Dein Browser/Adblocker hat den Hintergrund-Aufruf blockiert — klicke unten auf „Direkt-Link öffnen“."
-        );
-      }
-    } finally {
-      setIsSending(false);
+    } else {
+      setErrorMsg(
+        "Dein Browser/Adblocker hat den Hintergrund-Aufruf blockiert — klicke unten auf „Direkt-Test ↗“."
+      );
     }
+    setIsSending(false);
   }
 
   const canSend =
@@ -145,7 +206,7 @@ export function MobileAndSignalModal({
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true">
-      <div className="modal-sheet" style={{ maxWidth: 540 }}>
+      <div className="modal-sheet" style={{ maxWidth: 560 }}>
         <div
           style={{
             display: "flex",
@@ -156,9 +217,16 @@ export function MobileAndSignalModal({
             marginBottom: "1rem",
           }}
         >
-          <h2 style={{ fontSize: "1.12rem", fontWeight: 800 }}>
-            Signal Daily Reminder 💬
-          </h2>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.55rem" }}>
+            <h2 style={{ fontSize: "1.12rem", fontWeight: 800 }}>
+              Signal 06:00 Uhr Morning-Briefing 💬
+            </h2>
+            {canSend && autoEnabled && (
+              <span className="badge badge-cardio" style={{ fontSize: "0.7rem" }}>
+                Aktiv • {autoTime} Uhr
+              </span>
+            )}
+          </div>
           <button
             type="button"
             className="icon-btn"
@@ -176,45 +244,101 @@ export function MobileAndSignalModal({
             gap: "0.95rem",
           }}
         >
+          {/* Auto-Schedule Card */}
           <div
             style={{
-              background: "var(--bg-soft)",
-              padding: "1rem",
+              background:
+                "linear-gradient(135deg, rgba(166, 227, 161, 0.12), rgba(203, 166, 247, 0.12))",
+              padding: "0.9rem 1rem",
               borderRadius: 16,
-              border: "1px solid rgba(203, 166, 247, 0.3)",
-              fontSize: "0.82rem",
+              border: "1px solid rgba(166, 227, 161, 0.35)",
               display: "flex",
-              flexDirection: "column",
-              gap: "0.45rem",
+              justifyContent: "space-between",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: "0.75rem",
             }}
           >
-            <strong style={{ color: "var(--pastel-lavender)" }}>
-              Wichtig bei CallMeBot Signal (UUID vs. Telefonnummer):
-            </strong>
-            <div>
-              Wenn CallMeBot dir in Signal geantwortet hat, schickt er dir eine
-              Beispiel-URL wie:
+            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
               <div
                 style={{
-                  marginTop: 4,
-                  padding: "0.4rem 0.65rem",
-                  background: "var(--bg-input)",
-                  borderRadius: 8,
-                  fontFamily: "monospace",
-                  fontSize: "0.74rem",
-                  color: "var(--pastel-peach)",
-                  wordBreak: "break-all",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  fontSize: "0.86rem",
+                  fontWeight: 800,
+                  color: "var(--pastel-mint)",
                 }}
               >
-                https://signal.callmebot.com/signal/send.php?phone=DEINE_UUID_ODER_NUMMER&amp;apikey=DEIN_KEY
+                <Clock size={16} />
+                <span>Täglicher Auto-Versand am Morgen</span>
               </div>
+              <span
+                style={{ fontSize: "0.76rem", color: "var(--text-secondary)" }}
+              >
+                Schickt dir jeden Morgen automatisch deinen Tagesplan,
+                Gewichts-Steigerungen &amp; Supplements auf Signal.
+              </span>
+              {prefs.lastAutoSentDate && (
+                <span
+                  style={{
+                    fontSize: "0.72rem",
+                    color: "var(--pastel-lavender)",
+                    fontWeight: 700,
+                  }}
+                >
+                  ✓ Zuletzt gesendet am: {prefs.lastAutoSentDate}
+                </span>
+              )}
             </div>
-            <div style={{ color: "var(--text-secondary)" }}>
-              💡 <strong>Geheimtipp:</strong> Kopiere einfach die{" "}
-              <strong>komplette URL</strong> aus der Signal-Nachricht von
-              CallMeBot in das erste Feld unten — Schym liest deine{" "}
-              <code>phone</code> / <code>UUID</code> und den{" "}
-              <code>apikey</code> automatisch daraus aus!
+
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.55rem",
+              }}
+            >
+              <input
+                type="time"
+                className="field-input"
+                style={{
+                  width: 96,
+                  padding: "0.35rem 0.55rem",
+                  fontSize: "0.82rem",
+                  fontWeight: 700,
+                }}
+                value={autoTime}
+                onChange={(e) => {
+                  const nextTime = e.target.value || "06:00";
+                  setAutoTime(nextTime);
+                  onSavePrefs({
+                    ...prefs,
+                    phone: normalizePhoneOrUuid(recipientPhone),
+                    apiKey: apiKey.trim(),
+                    autoEnabled,
+                    autoTime: nextTime,
+                  });
+                }}
+              />
+
+              <button
+                type="button"
+                className={`pill-tab ${autoEnabled ? "active" : ""}`}
+                onClick={() => {
+                  const next = !autoEnabled;
+                  setAutoEnabled(next);
+                  onSavePrefs({
+                    ...prefs,
+                    phone: normalizePhoneOrUuid(recipientPhone),
+                    apiKey: apiKey.trim(),
+                    autoEnabled: next,
+                    autoTime,
+                  });
+                }}
+              >
+                {autoEnabled ? "Auto AN ✅" : "Auto AUS"}
+              </button>
             </div>
           </div>
 
@@ -246,11 +370,11 @@ export function MobileAndSignalModal({
           <form className="form-stack" onSubmit={handleSendSignal}>
             <div className="form-row-2">
               <label className="field-label">
-                CallMeBot Link ODER Nummer / UUID
+                Deine CallMeBot UUID / Nummer (oder ganzer Link)
                 <input
                   type="text"
                   className="field-input"
-                  placeholder="+4917... oder UUID oder ganzer Link"
+                  placeholder="32268044-5185-... oder ganzer Link"
                   value={recipientPhone}
                   onChange={(e) => handleSmartInput("phone", e.target.value)}
                   required
@@ -258,11 +382,11 @@ export function MobileAndSignalModal({
               </label>
 
               <label className="field-label">
-                Dein API-Key (z. B. 123456)
+                Dein CallMeBot API-Key
                 <input
                   type="text"
                   className="field-input"
-                  placeholder="API-Key aus Signal"
+                  placeholder="z.B. 856294"
                   value={apiKey}
                   onChange={(e) => handleSmartInput("key", e.target.value)}
                   required
@@ -281,13 +405,27 @@ export function MobileAndSignalModal({
                 <span>
                   {isSending
                     ? "Sende an Signal..."
-                    : "Jetzt Briefing an Signal senden"}
+                    : "Jetzt Tages-Briefing an Signal senden"}
                 </span>
+              </button>
+
+              <button
+                type="button"
+                className="pill-tab"
+                onClick={handleSaveConfigOnly}
+                disabled={!canSend}
+              >
+                <span>Speichern</span>
               </button>
 
               {canSend && (
                 <a
-                  href={buildCallMeBotUrl("signal.callmebot.com")}
+                  href={buildCallMeBotSignalUrl(
+                    "signal.callmebot.com",
+                    recipientPhone,
+                    apiKey,
+                    briefing.signalMessageText
+                  )}
                   target="_blank"
                   rel="noreferrer"
                   className="pill-tab"
@@ -297,7 +435,7 @@ export function MobileAndSignalModal({
                     alignItems: "center",
                     gap: 5,
                   }}
-                  title="Öffnet den CallMeBot-Versand direkt im neuen Tab (zeigt exakten Status)"
+                  title="Öffnet den CallMeBot-Versand direkt im neuen Tab"
                 >
                   <span>Direkt-Test ↗</span>
                   <ExternalLink size={13} />
@@ -323,7 +461,8 @@ export function MobileAndSignalModal({
               }}
               onClick={() => setShowPreview((v) => !v)}
             >
-              <span>Nachrichten-Vorschau ansehen</span>
+              <Sparkles size={13} />
+              <span>Vorschau deiner 06:00-Uhr-Nachricht</span>
               {showPreview ? (
                 <ChevronUp size={13} />
               ) : (
@@ -336,11 +475,13 @@ export function MobileAndSignalModal({
                 style={{
                   marginTop: "0.65rem",
                   background: "var(--bg-soft)",
-                  padding: "0.75rem",
+                  padding: "0.85rem",
                   borderRadius: 12,
+                  border: "1px solid var(--border-subtle)",
                   fontSize: "0.78rem",
                   color: "var(--text-secondary)",
                   whiteSpace: "pre-line",
+                  lineHeight: 1.5,
                 }}
               >
                 {briefing.signalMessageText}

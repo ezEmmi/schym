@@ -416,6 +416,17 @@ export function computeCoachBriefing(
 
   const scienceInsights: ScienceInsight[] = [
     {
+      id: "plotkin_double_progression_2022",
+      title: "Gelernte Kraft-Kurve & Plateau-Brecher (Double Progression)",
+      finding:
+        "Starke Progression bei Brustpresse (16,5 → 23 kg, +39 %) & Bizepscurl (10 → 18 kg, +80 %). Aber: Latzug (30 kg × 12) & Hyperextension (15 kg × 12) stehen seit 3 Einheiten auf demselben Gewicht!",
+      recommendation:
+        "Nach Plotkin et al. (2022): Wenn der Gewichtssprung am Steckgewicht zu groß ist, erhöhe erst auf 14–15 Wiederholungen („Rep Progression“) und springe erst im Workout danach auf die nächste Gewichts-Stufe.",
+      citation:
+        "Plotkin et al. (2022, PeerJ — Load vs. Repetition Progression produce equal hypertrophy)",
+      badgeColor: "#a6e3a1",
+    },
+    {
       id: "pelland_volume_2024",
       title: "Wochen-Volumen & 2×/Woche Oberkörper-Frequenz",
       finding: `Dein gelernter Rhythmus liegt bei ~${learnedGymPerWeek}× Gym/Woche (Ø alle ${learnedAvgRestDays} Tage). Weil du in „Drücken“ auch Klimmzüge & Bizepscurls machst, trainierst du Rücken & Bizeps 2× pro Woche — Brust & Trizeps aber aktuell fast nur in „Drücken“!`,
@@ -434,7 +445,7 @@ export function computeCoachBriefing(
         "Studien zeigen bis zu +40 % mehr Hypertrophie, wenn der Muskel in der gedehnten Position arbeitet: Lass bei Brustpresse, Latzug und Fliegenden am untersten Punkt 1 Sekunde kontrolliert in die Dehnung ziehen.",
       citation:
         "Maeo et al. (2023, Eur J Sport Sci) & Pedrosa et al. (2023) — Long-Length Partial / Stretch Hypertrophy",
-      badgeColor: "#a6e3a1",
+      badgeColor: "#f5c2e7",
     },
     {
       id: "refalo_rir_2023",
@@ -460,10 +471,15 @@ export function computeCoachBriefing(
 
   const suppSuffix =
     pendingSupplementNames.length > 0
-      ? ` 💊 Offene Supps: ${pendingSupplementNames.join(", ")}.`
-      : " ✅ Alle Supplements erledigt!";
+      ? `\n💊 Heute offen: ${pendingSupplementNames.join(", ")}`
+      : "\n✅ Alle Supplements heute schon abgehakt!";
 
-  const signalMessageText = `⚡ Schym Science Coach (${todayWeekdayName}, ${todayIso}):\n${headline}\n${subline}${suppSuffix}`;
+  const nextFocusTarget =
+    recommendedTemplate?.name.toLowerCase().includes("ziehen")
+      ? "🎯 Fokus-Ziel im Gym: Latzug 30kg × 13+ Wdh. (Plateau brechen!) & Bizepscurl 18kg bestätigen."
+      : "🎯 Fokus-Ziel im Gym: Brustpresse 23kg × 10 Wdh. & Schulterpresse 28kg × 12/12/10.";
+
+  const signalMessageText = `☀️ Guten Morgen! Dein Schym 06:00 Uhr Briefing (${todayWeekdayName}, ${todayIso}):\n\n💪 ${headline}\n📋 ${subline}\n${nextFocusTarget}\n🥩 Tagesziel: ${proteinTargetGrams}g Protein + ${creatineGrams}g Kreatin${suppSuffix}`;
 
   return {
     headline,

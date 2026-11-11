@@ -3,6 +3,23 @@ import { signalNotifyRequestSchema } from "@/lib/validation/fitness";
 import { dispatchSignalMessage } from "@/lib/signal";
 import { verifyRequestSecurity } from "@/lib/security";
 
+export async function GET() {
+  const uuid = process.env.SCHYM_SIGNAL_UUID ?? "";
+  const apiKey = process.env.SCHYM_SIGNAL_APIKEY ?? "";
+  const autoTime = process.env.SCHYM_SIGNAL_AUTO_TIME ?? "06:00";
+
+  return NextResponse.json(
+    {
+      ok: true,
+      configured: Boolean(uuid && apiKey),
+      recipientPhone: uuid,
+      apiKey,
+      autoTime,
+    },
+    { status: 200 }
+  );
+}
+
 export async function POST(request: NextRequest) {
   const sec = verifyRequestSecurity(request);
   if (!sec.allowed) {
@@ -10,8 +27,21 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const rawBody: unknown = await request.json();
-    const parsed = signalNotifyRequestSchema.safeParse(rawBody);
+    const rawBody = (await request.json()) as Record<string, unknown>;
+    const mergedBody = {
+      ...rawBody,
+      recipientPhone:
+        (typeof rawBody.recipientPhone === "string" &&
+        rawBody.recipientPhone.trim()
+          ? rawBody.recipientPhone
+          : process.env.SCHYM_SIGNAL_UUID) ?? "",
+      apiKey:
+        (typeof rawBody.apiKey === "string" && rawBody.apiKey.trim()
+          ? rawBody.apiKey
+          : process.env.SCHYM_SIGNAL_APIKEY) ?? "",
+    };
+
+    const parsed = signalNotifyRequestSchema.safeParse(mergedBody);
 
     if (!parsed.success) {
       return NextResponse.json(
