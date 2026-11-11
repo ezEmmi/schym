@@ -3,7 +3,7 @@ import type {
   MuscleGroup,
   WorkoutTemplate,
 } from "./db/schema";
-import { MUSCLE_GROUPS } from "./muscles";
+import { MUSCLE_GROUPS, computeOverloadSuggestion } from "./muscles";
 
 export interface WeekdayHabit {
   weekdayIndex: number; // 0 = Mo .. 6 = So
@@ -39,6 +39,33 @@ export interface MuscleVolumeStatus {
   status: "optimal" | "low" | "high";
 }
 
+export interface PlannedFutureExercise {
+  name: string;
+  muscleGroup: MuscleGroup;
+  targetSets: number;
+  targetReps: number;
+  suggestedWeightKg: number;
+  previousWeightKg: number;
+  previousReps: number;
+  shouldIncrease: boolean;
+  hint: string;
+  seatNote: string;
+}
+
+export interface PlannedFutureDay {
+  dateIso: string;
+  dayOffset: number; // 0 = Heute, 1 = Morgen, ...
+  weekdayShort: string;
+  weekdayFull: string;
+  relativeLabel: string;
+  type: "gym" | "cardio" | "rest" | "completed";
+  title: string;
+  badgeText: string;
+  reason: string;
+  templateName: string | null;
+  exercises: PlannedFutureExercise[];
+}
+
 export interface DailyCoachBriefing {
   headline: string;
   subline: string;
@@ -53,6 +80,7 @@ export interface DailyCoachBriefing {
   daysSinceLastGym: number;
   scienceInsights: ScienceInsight[];
   muscleVolumes: MuscleVolumeStatus[];
+  futureSchedule: PlannedFutureDay[];
   signalMessageText: string;
   trainedToday: boolean;
 }
@@ -82,6 +110,18 @@ function getIsoWeekdayIndex(dateStr: string): number {
   return (dt.getUTCDay() + 6) % 7; // Monday = 0 .. Sunday = 6
 }
 
+function addDaysIso(baseIso: string, addDays: number): string {
+  const [y, m, d] = baseIso.split("-").map(Number);
+  if (!y || !m || !d) return baseIso;
+  const dt = new Date(Date.UTC(y, m - 1, d + addDays));
+  return dt.toISOString().slice(0, 10);
+}
+
+function formatShortGermanDate(iso: string): string {
+  const [, m, d] = iso.split("-");
+  return `${d}.${m}.`;
+}
+
 function daysBetween(dateA: string, dateB: string): number {
   const [y1, m1, d1] = dateA.split("-").map(Number);
   const [y2, m2, d2] = dateB.split("-").map(Number);
@@ -89,6 +129,46 @@ function daysBetween(dateA: string, dateB: string): number {
   const ms1 = Date.UTC(y1, m1 - 1, d1);
   const ms2 = Date.UTC(y2, m2 - 1, d2);
   return Math.round(Math.abs(ms2 - ms1) / (1000 * 60 * 60 * 24));
+}
+
+function buildPlannedExercisesForTemplate(
+  tpl: WorkoutTemplate,
+  data: FitnessDataset
+): PlannedFutureExercise[] {
+  return tpl.exercises.map((ex) => {
+    const norm = ex.name.trim().toLowerCase();
+    const pastEntries = data.gym.filter(
+      (g) => g.exerciseName.trim().toLowerCase() === norm
+    );
+    const latest = pastEntries[0];
+    const seatEntry = pastEntries.find(
+      (g) =>
+        g.notes &&
+        g.notes.trim().length > 0 &&
+        g.notes !== "Hevy Import" &&
+        !g.notes.startsWith("Sätze:")
+    );
+
+    const suggestion = computeOverloadSuggestion(
+      ex.name,
+      ex.targetReps,
+      ex.defaultWeightKg,
+      data.gym
+    );
+
+    return {
+      name: ex.name,
+      muscleGroup: ex.muscleGroup,
+      targetSets: ex.targetSets,
+      targetReps: suggestion.suggestedReps,
+      suggestedWeightKg: suggestion.suggestedWeightKg,
+      previousWeightKg: latest?.weightKg ?? ex.defaultWeightKg,
+      previousReps: latest?.reps ?? ex.targetReps,
+      shouldIncrease: suggestion.shouldIncrease,
+      hint: suggestion.reason,
+      seatNote: seatEntry?.notes ?? "",
+    };
+  });
 }
 
 /**
@@ -104,7 +184,6 @@ export function computeFractionalMuscleVolumes(
   const recentEntries = data.gym.filter(
     (g) => daysBetween(g.sessionDate, todayIso) <= 14
   );
-  // If no entries in last 14 days, use the latest 4 workout days in history
   const distinctDates = Array.from(
     new Set(data.gym.map((g) => g.sessionDate))
   ).slice(0, 4);
@@ -113,7 +192,7 @@ export function computeFractionalMuscleVolumes(
       ? recentEntries
       : data.gym.filter((g) => distinctDates.includes(g.sessionDate));
 
-  const weeksSampled = 2; // 14-day window -> divide by 2 for weekly rate
+  const weeksSampled = 2;
   const rawSets: Record<MuscleGroup, number> = {
     chest: 0,
     back: 0,
@@ -132,7 +211,6 @@ export function computeFractionalMuscleVolumes(
     const lower = entry.exerciseName.toLowerCase();
     rawSets[entry.muscleGroup] += s;
 
-    // Fractional synergist accounting (Pelland et al., 2024)
     if (
       entry.muscleGroup === "chest" &&
       (lower.includes("presse") || lower.includes("press"))
@@ -196,7 +274,6 @@ export function computeCoachBriefing(
   const todayWeekdayName = WEEKDAY_NAMES_FULL[todayWeekdayIdx] ?? "Heute";
 
   // 1. True Behavioral Cadence & Top-K Weekday Learner
-  // Sort distinct gym dates chronologically (newest first)
   const gymDates = Array.from(
     new Set(data.gym.map((g) => g.sessionDate))
   ).sort((a, b) => b.localeCompare(a));
@@ -207,7 +284,6 @@ export function computeCoachBriefing(
     new Set(data.bouldering.map((b) => b.sessionDate))
   ).sort((a, b) => b.localeCompare(a));
 
-  // Calculate average rest days between consecutive gym workouts
   const gaps: number[] = [];
   for (let i = 0; i < gymDates.length - 1; i++) {
     const gap = daysBetween(gymDates[i]!, gymDates[i + 1]!);
@@ -220,14 +296,12 @@ export function computeCoachBriefing(
       ? Math.round((gaps.reduce((a, b) => a + b, 0) / gaps.length) * 10) / 10
       : 3.5;
 
-  // Calculate real weekly gym frequency (sessions per 7 days)
   const newestDate = gymDates[0] ?? todayIso;
   const oldestDate = gymDates[gymDates.length - 1] ?? todayIso;
   const totalSpanWeeks = Math.max(
     1,
     daysBetween(newestDate, oldestDate) / 7
   );
-  // Weight recent 28 days higher so current habits dominate
   const recent28Count = gymDates.filter(
     (d) => daysBetween(d, newestDate) <= 28
   ).length;
@@ -235,17 +309,16 @@ export function computeCoachBriefing(
   const recentPerWeek = recent28Count / 4;
   const learnedGymPerWeek =
     Math.round(
-      (recent28Count >= 3 ? recentPerWeek * 0.65 + overallPerWeek * 0.35 : overallPerWeek) *
-        10
+      (recent28Count >= 3
+        ? recentPerWeek * 0.65 + overallPerWeek * 0.35
+        : overallPerWeek) * 10
     ) / 10;
 
-  // How many primary Gym weekdays should be highlighted? (e.g. 2 days/week -> Top 2 weekdays!)
   const maxGymHabitDays = Math.max(
     1,
     Math.min(3, Math.round(learnedGymPerWeek || 2))
   );
 
-  // Score each weekday with recency weighting (last 30 days = 2.0 pts, older = 1.0 pt)
   const weekdayGymScores = WEEKDAY_NAMES_SHORT.map((_, idx) => {
     let rawCount = 0;
     let weightedScore = 0;
@@ -258,7 +331,6 @@ export function computeCoachBriefing(
     return { idx, rawCount, weightedScore };
   });
 
-  // Only the Top-K weekdays with at least 2 sessions (or highest score) are true "Stamm-Gym-Tage"!
   const topGymWeekdayIndices = new Set(
     weekdayGymScores
       .filter((w) => w.rawCount >= 2 || (gymDates.length < 4 && w.rawCount >= 1))
@@ -374,42 +446,201 @@ export function computeCoachBriefing(
   const lastGymDate = gymDates[0];
   const daysSinceLastGym = lastGymDate ? daysBetween(lastGymDate, todayIso) : 99;
 
-  // 6. Build Evidence-Based Daily Recommendation
-  const todayHabit = weekdayHabits[todayWeekdayIdx];
+  // 6. GENERATE 14-DAY FORWARD-LOOKING TRAINING SCHEDULE (Proactive Future Planning!)
+  const templates =
+    data.templates.length > 0
+      ? data.templates
+      : [
+          {
+            id: 1,
+            name: "Drücken",
+            exercises: [],
+            createdAt: todayIso,
+          },
+          {
+            id: 2,
+            name: "Ziehen",
+            exercises: [],
+            createdAt: todayIso,
+          },
+        ];
+
+  let nextTplIdx = templates.findIndex(
+    (t) => t.name === recommendedTemplate?.name
+  );
+  if (nextTplIdx < 0) nextTplIdx = 0;
+
+  let simDaysSinceGym = trainedToday && gymDates.includes(todayIso)
+    ? 0
+    : daysSinceLastGym;
+  let cardioScheduledThisWeek = 0;
+
+  const futureSchedule: PlannedFutureDay[] = [];
+  for (let offset = 0; offset < 14; offset++) {
+    const dateIso = addDaysIso(todayIso, offset);
+    const wIdx = getIsoWeekdayIndex(dateIso);
+    const wShort = WEEKDAY_NAMES_SHORT[wIdx] ?? "Mo";
+    const wFull = WEEKDAY_NAMES_FULL[wIdx] ?? "Montag";
+    const shortDate = formatShortGermanDate(dateIso);
+    const relativeLabel =
+      offset === 0
+        ? "Heute"
+        : offset === 1
+          ? "Morgen"
+          : offset === 2
+            ? "Übermorgen"
+            : `${wShort}, ${shortDate}`;
+
+    if (wIdx === 0) {
+      cardioScheduledThisWeek = 0;
+    }
+
+    // Case A: Today already trained
+    if (offset === 0 && trainedToday) {
+      const todayFocus =
+        data.gym.find((g) => g.sessionDate === todayIso)?.workoutFocus ??
+        "Training";
+      futureSchedule.push({
+        dateIso,
+        dayOffset: offset,
+        weekdayShort: wShort,
+        weekdayFull: wFull,
+        relativeLabel,
+        type: "completed",
+        title: `Erledigt: ${todayFocus} ✅`,
+        badgeText: "✅ Heute erledigt",
+        reason: `Du hast heute bereits trainiert! Jetzt läuft für 36–48h die Muskelproteinbiosynthese. Fokus heute: ${Math.round(profile.weightKg * 1.8)}g Protein & 5g Kreatin.`,
+        templateName: null,
+        exercises: [],
+      });
+      simDaysSinceGym += 1;
+      continue;
+    }
+
+    // Should we schedule a Gym workout on this day?
+    // Condition: At least 2 days since last gym (48h recovery!) AND either it's one of the user's favorite Gym weekdays (Do/So/Fr) OR 3+ days have passed since the last Gym session!
+    const isFavGymDay = topGymWeekdayIndices.has(wIdx);
+    const shouldScheduleGym =
+      (simDaysSinceGym >= 2 && isFavGymDay) || simDaysSinceGym >= 3;
+
+    if (shouldScheduleGym) {
+      const tpl = templates[nextTplIdx % templates.length]!;
+      const plannedExercises = buildPlannedExercisesForTemplate(tpl, data);
+      const overloadCount = plannedExercises.filter(
+        (e) => e.shouldIncrease
+      ).length;
+
+      futureSchedule.push({
+        dateIso,
+        dayOffset: offset,
+        weekdayShort: wShort,
+        weekdayFull: wFull,
+        relativeLabel,
+        type: "gym",
+        title: `Gym: „${tpl.name}“ 💪`,
+        badgeText: `💪 ${tpl.name}`,
+        reason: isFavGymDay
+          ? `${wFull} (${shortDate}) ist dein gelernter Stamm-Trainingstag und deine Muskulatur ist nach ${simDaysSinceGym} Tagen Pause zu 100 % erholt. Bei ${overloadCount} Übungen steht eine Steigerung an!`
+          : `Optimales Superkompensations-Fenster am ${wFull} (${shortDate}) nach ${simDaysSinceGym} Tagen Pause — „${tpl.name}“ ist in deiner Rotation als Nächstes dran.`,
+        templateName: tpl.name,
+        exercises: plannedExercises,
+      });
+
+      simDaysSinceGym = 1;
+      nextTplIdx += 1;
+      continue;
+    }
+
+    // Day right after Gym -> Mandatory 48h Muscle Recovery Day
+    if (simDaysSinceGym === 1) {
+      futureSchedule.push({
+        dateIso,
+        dayOffset: offset,
+        weekdayShort: wShort,
+        weekdayFull: wFull,
+        relativeLabel,
+        type: "rest",
+        title: "Regeneration & Muskelaufbau 🧘",
+        badgeText: "🧘 Pause / Mobility",
+        reason: `Tag nach dem Gym: Deine Muskelfasern reparieren sich gerade (48h Hypertrophie-Fenster nach MacDougall et al.). Ideal: 8.000 Schritte, Dehnen & ${Math.round(profile.weightKg * 1.8)}g Protein.`,
+        templateName: null,
+        exercises: [],
+      });
+      simDaysSinceGym += 1;
+      continue;
+    }
+
+    // Otherwise -> Ideal Cardio / Bouldering Day between Gym sessions!
+    if (cardioScheduledThisWeek < 2) {
+      cardioScheduledThisWeek += 1;
+      futureSchedule.push({
+        dateIso,
+        dayOffset: offset,
+        weekdayShort: wShort,
+        weekdayFull: wFull,
+        relativeLabel,
+        type: "cardio",
+        title: "Cardio (Zone 2) oder Bouldern 🏃",
+        badgeText: "🏃 Cardio / Sport",
+        reason: `Perfekter Zwischen-Tag am ${wFull} (${shortDate}) ohne Interferenz-Effekt fürs nächste Gym-Training: 30–40 Min Laufen/Radfahren (Puls 135–145 bpm) oder eine lockere Boulder-Session.`,
+        templateName: null,
+        exercises: [],
+      });
+    } else {
+      futureSchedule.push({
+        dateIso,
+        dayOffset: offset,
+        weekdayShort: wShort,
+        weekdayFull: wFull,
+        relativeLabel,
+        type: "rest",
+        title: "Aktive Erholung 🌿",
+        badgeText: "🌿 Erholung",
+        reason: `Vorbereitung auf deine nächste schwere Gym-Einheit morgen. Schlaf & Elektrolyte priorisieren.`,
+        templateName: null,
+        exercises: [],
+      });
+    }
+
+    simDaysSinceGym += 1;
+  }
+
+  // 7. Build Headline & Subline referencing the concrete upcoming schedule!
+  const todayPlan = futureSchedule[0]!;
+  const nextGymPlan =
+    futureSchedule.find((d) => d.type === "gym") ?? futureSchedule[0]!;
+
   let recommendedAction: "gym" | "cardio" | "bouldering" | "rest" = "gym";
   let headline = "";
   let subline = "";
 
-  if (trainedToday) {
-    recommendedAction = "rest";
-    headline = `Stark! Heute (${todayWeekdayName}) schon abgeliefert — Muskelproteinbiosynthese läuft 🔥`;
-    subline =
-      pendingSupplementNames.length > 0
-        ? `Optimal für Hypertrophie jetzt: ${Math.round(profile.weightKg * 1.8)}g Protein über den Tag + offene Supps (${pendingSupplementNames.slice(0, 3).join(", ")}).`
-        : `Dein Rhythmus: Ø alle ${learnedAvgRestDays} Tage Gym (~${learnedGymPerWeek}×/Woche). Nächster Split in Rotation: „${recommendedTemplate?.name ?? "Ziehen"}“.`;
-  } else if (daysSinceLastGym <= 1) {
-    // Yesterday was a Gym day -> enforce 48h recovery window!
-    recommendedAction = "rest";
-    headline = `Heute Regeneration oder lockeres Zone-2 Cardio 🌿`;
-    subline = `Du warst gestern im Gym — laut Studien (MacDougall / Schoenfeld) läuft die Muskelreparatur für 36–48h. Nächstes Gym-Fenster in ~${Math.max(1, Math.round(learnedAvgRestDays - daysSinceLastGym))} Tagen.`;
-  } else if (
-    (todayHabit && todayHabit.dominantType === "gym") ||
-    daysSinceLastGym >= Math.round(learnedAvgRestDays)
-  ) {
+  if (todayPlan.type === "gym") {
     recommendedAction = "gym";
-    const planName = recommendedTemplate?.name ?? "Gym Session";
-    headline =
-      todayHabit?.dominantType === "gym"
-        ? `Yo! ${todayWeekdayName} ist einer deiner gelernten Stamm-Gym-Tage 💪`
-        : `Dein ${Math.round(learnedAvgRestDays)}-Tage-Rhythmus schlägt an: Zeit für „${planName}“ 💪`;
-    subline = `Letztes Gym vor ${daysSinceLastGym} Tagen — „${planName}“ ist als Nächstes in deiner Rotation dran (${recoveredMuscleLabels.join(", ")} sind zu 100 % erholt).`;
-  } else {
+    const topTargets = todayPlan.exercises
+      .slice(0, 2)
+      .map((e) => `${e.name} ${e.suggestedWeightKg}kg × ${e.targetReps}`)
+      .join(" • ");
+    headline = `Heute (${todayWeekdayName}) im Plan: Gym „${todayPlan.templateName}“ 💪`;
+    subline = `${todayPlan.reason}${topTargets ? ` — Heutige Ziele: ${topTargets}` : ""}`;
+  } else if (todayPlan.type === "completed") {
+    recommendedAction = "rest";
+    headline = `Heute erledigt ✅ — Dein nächstes Gym-Training ist am ${nextGymPlan.weekdayFull} (${formatShortGermanDate(nextGymPlan.dateIso)}): „${nextGymPlan.templateName}“ 💪`;
+    const nextTargets = nextGymPlan.exercises
+      .slice(0, 2)
+      .map((e) => `${e.name} ${e.suggestedWeightKg}kg × ${e.targetReps}`)
+      .join(" • ");
+    subline = `Für dich vorausgeplant: Morgen Regeneration, nächstes Gym am ${nextGymPlan.weekdayFull} mit Ziel: ${nextTargets}.`;
+  } else if (todayPlan.type === "cardio") {
     recommendedAction = "cardio";
-    headline = `Heute kein fester Gym-Tag (${todayWeekdayName}) — perfekt für Sport/Cardio oder Erholung ✨`;
-    subline = `Deine gelernten Gym-Schwerpunkte liegen aktuell bei Ø ${learnedGymPerWeek}×/Woche (alle ~${learnedAvgRestDays} Tage). Nächster Gym-Plan: „${recommendedTemplate?.name ?? "Drücken"}“.`;
+    headline = `Heute: ${todayPlan.title} — Nächstes Gym am ${nextGymPlan.weekdayFull} (${formatShortGermanDate(nextGymPlan.dateIso)}): „${nextGymPlan.templateName}“`;
+    subline = `${todayPlan.reason}`;
+  } else {
+    recommendedAction = "rest";
+    headline = `Heute: Regeneration 🧘 — Nächstes Gym am ${nextGymPlan.weekdayFull} (${formatShortGermanDate(nextGymPlan.dateIso)}): „${nextGymPlan.templateName}“ 💪`;
+    subline = `${todayPlan.reason}`;
   }
 
-  // 7. Compute Peer-Reviewed Sports Science Insights tailored to the user's data & profile
+  // 8. Compute Peer-Reviewed Sports Science Insights tailored to the user's data & profile
   const muscleVolumes = computeFractionalMuscleVolumes(data, todayIso);
   const proteinTargetGrams = Math.round(profile.weightKg * 1.8);
   const creatineGrams = Math.max(3, Math.round(profile.weightKg * 0.05));
@@ -421,7 +652,7 @@ export function computeCoachBriefing(
       finding:
         "Starke Progression bei Brustpresse (16,5 → 23 kg, +39 %) & Bizepscurl (10 → 18 kg, +80 %). Aber: Latzug (30 kg × 12) & Hyperextension (15 kg × 12) stehen seit 3 Einheiten auf demselben Gewicht!",
       recommendation:
-        "Nach Plotkin et al. (2022): Wenn der Gewichtssprung am Steckgewicht zu groß ist, erhöhe erst auf 14–15 Wiederholungen („Rep Progression“) und springe erst im Workout danach auf die nächste Gewichts-Stufe.",
+        "Nach Plotkin et al. (2022): Wenn der Gewichtssprung am Steckgewicht zu groß ist, erhöhe erst auf 14–15 Wiederholungen („Rep Progression“) oder geh im 1. Satz auf 32,5 kg × 8–10 Wdh.",
       citation:
         "Plotkin et al. (2022, PeerJ — Load vs. Repetition Progression produce equal hypertrophy)",
       badgeColor: "#a6e3a1",
@@ -431,7 +662,7 @@ export function computeCoachBriefing(
       title: "Wochen-Volumen & 2×/Woche Oberkörper-Frequenz",
       finding: `Dein gelernter Rhythmus liegt bei ~${learnedGymPerWeek}× Gym/Woche (Ø alle ${learnedAvgRestDays} Tage). Weil du in „Drücken“ auch Klimmzüge & Bizepscurls machst, trainierst du Rücken & Bizeps 2× pro Woche — Brust & Trizeps aber aktuell fast nur in „Drücken“!`,
       recommendation:
-        "Ergänze am Ende von „Ziehen“ 3 Sätze Brustpresse oder Fliegende + nimm Trizepsdrücken (Überkopf am Kabel) wieder fest rein. So bekommt jeder Oberkörper-Muskel 2×/Woche den Wachstumsreiz und erreicht 10–14 effektive Sätze.",
+        "Ergänze am Ende von „Ziehen“ 3 Sätze Brustpresse oder Fliegende + nimm Trizepsdrücken (Überkopf am Kabel) wieder fest rein. So bekommt jeder Oberkörper-Muskel 2×/Woche den Wachstumsreiz.",
       citation:
         "Pelland et al. (2024/2025, Sports Med Bayesian Meta-Regression, 67 Studien) & Schoenfeld et al. (2016)",
       badgeColor: "#cba6f7",
@@ -469,17 +700,29 @@ export function computeCoachBriefing(
     },
   ];
 
+  // Build Signal Morning Briefing with 3-Day Future Outlook + Exercise Weight Targets
+  const next3DaysSummary = futureSchedule
+    .slice(0, 4)
+    .map(
+      (d) =>
+        `• ${d.relativeLabel} (${formatShortGermanDate(d.dateIso)}): ${d.badgeText}`
+    )
+    .join("\n");
+
+  const nextGymExercisePreview = nextGymPlan.exercises
+    .slice(0, 4)
+    .map(
+      (e) =>
+        `  - ${e.name}: ${e.targetSets}×${e.targetReps} @ ${e.suggestedWeightKg} kg ${e.shouldIncrease ? "🔼 (+Steigerung!)" : ""}`
+    )
+    .join("\n");
+
   const suppSuffix =
     pendingSupplementNames.length > 0
       ? `\n💊 Heute offen: ${pendingSupplementNames.join(", ")}`
       : "\n✅ Alle Supplements heute schon abgehakt!";
 
-  const nextFocusTarget =
-    recommendedTemplate?.name.toLowerCase().includes("ziehen")
-      ? "🎯 Fokus-Ziel im Gym: Latzug 30kg × 13+ Wdh. (Plateau brechen!) & Bizepscurl 18kg bestätigen."
-      : "🎯 Fokus-Ziel im Gym: Brustpresse 23kg × 10 Wdh. & Schulterpresse 28kg × 12/12/10.";
-
-  const signalMessageText = `☀️ Guten Morgen! Dein Schym 06:00 Uhr Briefing (${todayWeekdayName}, ${todayIso}):\n\n💪 ${headline}\n📋 ${subline}\n${nextFocusTarget}\n🥩 Tagesziel: ${proteinTargetGrams}g Protein + ${creatineGrams}g Kreatin${suppSuffix}`;
+  const signalMessageText = `☀️ Guten Morgen! Dein Schym 06:00 Uhr Briefing (${todayWeekdayName}, ${todayIso}):\n\n💪 HEUTE: ${todayPlan.title}\n${todayPlan.reason}\n\n📅 DEIN FAHRPLAN FÜR DIE NÄCHSTEN TAGE:\n${next3DaysSummary}\n\n🎯 NÄCHSTE GYM-ZIELE (${nextGymPlan.templateName ?? "Gym"} am ${nextGymPlan.weekdayShort}):\n${nextGymExercisePreview}\n\n🥩 Tagesziel: ${proteinTargetGrams}g Protein + ${creatineGrams}g Kreatin${suppSuffix}`;
 
   return {
     headline,
@@ -495,6 +738,7 @@ export function computeCoachBriefing(
     daysSinceLastGym,
     scienceInsights,
     muscleVolumes,
+    futureSchedule,
     signalMessageText,
     trainedToday,
   };

@@ -96,9 +96,17 @@ export function FitnessDashboard({
 
   // Popups / Modals
   const [isGymModalOpen, setIsGymModalOpen] = useState(false);
+  const [selectedGymTemplateName, setSelectedGymTemplateName] = useState<
+    string | null
+  >(null);
   const [isQuickSportModalOpen, setIsQuickSportModalOpen] = useState(false);
   const [isStravaModalOpen, setIsStravaModalOpen] = useState(false);
   const [isMobileSignalModalOpen, setIsMobileSignalModalOpen] = useState(false);
+
+  function openGymModal(templateName: string | null = null) {
+    setSelectedGymTemplateName(templateName);
+    setIsGymModalOpen(true);
+  }
 
   function saveSignalPrefs(next: SignalPreferences) {
     setSignalPrefs(next);
@@ -587,7 +595,9 @@ export function FitnessDashboard({
           <button
             type="button"
             className="pastel-btn btn-lavender"
-            onClick={() => setIsGymModalOpen(true)}
+            onClick={() =>
+              openGymModal(coachBriefing.recommendedTemplate?.name ?? null)
+            }
           >
             <Dumbbell size={17} />
             <span>Ich bin im Gym 💪</span>
@@ -859,7 +869,11 @@ export function FitnessDashboard({
         onChangeDrawer={setCoachDrawer}
         onUpdateProfile={handleUpdateProfile}
         onApplyScienceUpgrade={handleApplyScienceUpgrade}
-        onStartGym={() => setIsGymModalOpen(true)}
+        onStartGym={(tplName) =>
+          openGymModal(
+            tplName ?? coachBriefing.recommendedTemplate?.name ?? null
+          )
+        }
         onStartCardio={() => setIsQuickSportModalOpen(true)}
         onOpenMobileAndSignal={() => setIsMobileSignalModalOpen(true)}
       />
@@ -886,6 +900,8 @@ export function FitnessDashboard({
           todayIso={todayIso}
           weeklyStreakCount={summary.weeklyStreakCount}
           activeDaysThisWeek={summary.activeDaysThisWeek}
+          futureSchedule={coachBriefing.futureSchedule}
+          onStartPlannedGym={(tplName) => openGymModal(tplName)}
         />
 
         <BodyMuscleMap gymEntries={data.gym} todayIso={todayIso} />
@@ -1181,6 +1197,10 @@ export function FitnessDashboard({
           templates={data.templates}
           gymHistory={data.gym}
           todayIso={todayIso}
+          initialTemplateName={selectedGymTemplateName}
+          recommendedTemplateName={
+            coachBriefing.recommendedTemplate?.name ?? null
+          }
           onClose={() => setIsGymModalOpen(false)}
           onSaveGymSet={(payload) => submitEntry("gym", payload)}
           onSaveTemplate={(payload) => submitEntry("template", payload)}

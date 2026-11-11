@@ -11,6 +11,8 @@ import {
   FlaskConical,
   UserCheck,
   X,
+  CalendarClock,
+  TrendingUp,
 } from "lucide-react";
 import type { AthleteProfile, DailyCoachBriefing } from "@/lib/coach";
 
@@ -23,7 +25,7 @@ interface SmartCoachBannerProps {
   onChangeDrawer: (mode: CoachDrawerMode) => void;
   onUpdateProfile: (next: AthleteProfile) => void;
   onApplyScienceUpgrade: () => Promise<void>;
-  onStartGym: () => void;
+  onStartGym: (templateName?: string | null) => void;
   onStartCardio: () => void;
   onOpenMobileAndSignal: () => void;
 }
@@ -41,6 +43,17 @@ export function SmartCoachBanner({
 }: SmartCoachBannerProps) {
   const [notifStatus, setNotifStatus] = useState<string | null>(null);
   const [upgradeDone, setUpgradeDone] = useState(false);
+
+  // Default selected day in the 7-day future planner: pick the first upcoming Gym day (or Today if none)
+  const firstUpcomingGymIdx = Math.max(
+    0,
+    briefing.futureSchedule.slice(0, 7).findIndex((d) => d.type === "gym")
+  );
+  const [selectedFutureIdx, setSelectedFutureIdx] =
+    useState<number>(firstUpcomingGymIdx);
+
+  const selectedFutureDay =
+    briefing.futureSchedule[selectedFutureIdx] ?? briefing.futureSchedule[0];
 
   async function enableBrowserReminder() {
     if (typeof window === "undefined" || !("Notification" in window)) {
@@ -63,13 +76,16 @@ export function SmartCoachBanner({
       className="panel-card pro-glass-card"
       style={{
         marginBottom: "0.95rem",
-        padding: "1rem 1.25rem",
+        padding: "1.05rem 1.25rem",
         background:
-          "linear-gradient(135deg, rgba(203, 166, 247, 0.14) 0%, rgba(34, 36, 54, 0.92) 55%, rgba(166, 227, 161, 0.09) 100%)",
-        border: "1px solid rgba(203, 166, 247, 0.32)",
+          "linear-gradient(135deg, rgba(203, 166, 247, 0.14) 0%, rgba(34, 36, 54, 0.94) 55%, rgba(166, 227, 161, 0.09) 100%)",
+        border: "1px solid rgba(203, 166, 247, 0.34)",
+        display: "flex",
+        flexDirection: "column",
+        gap: "0.95rem",
       }}
     >
-      {/* Top Row: Ultra-Clean Coach Headline + Primary Workout Button */}
+      {/* Top Row: Coach Headline + Primary Workout Button */}
       <div
         style={{
           display: "flex",
@@ -127,7 +143,7 @@ export function SmartCoachBanner({
                   color: "var(--pastel-lavender)",
                 }}
               >
-                Behavioral &amp; Science Coach
+                Zukunfts-Planer &amp; Science Coach
               </span>
               <span
                 style={{
@@ -136,7 +152,7 @@ export function SmartCoachBanner({
                   fontWeight: 700,
                 }}
               >
-                Gelernt: ~{briefing.learnedGymPerWeek}× Gym/Woche • Ø{" "}
+                Dein Rhythmus: ~{briefing.learnedGymPerWeek}× Gym/Woche • Ø{" "}
                 {briefing.learnedAvgRestDays} Tage Pause
               </span>
             </div>
@@ -170,7 +186,9 @@ export function SmartCoachBanner({
               type="button"
               className="pastel-btn btn-lavender"
               style={{ padding: "0.55rem 1.05rem", fontSize: "0.82rem" }}
-              onClick={onStartGym}
+              onClick={() =>
+                onStartGym(briefing.recommendedTemplate?.name ?? null)
+              }
             >
               <Dumbbell size={15} />
               <span>
@@ -204,12 +222,281 @@ export function SmartCoachBanner({
         </div>
       </div>
 
+      {/* PROACTIVE 7-DAY FUTURE TRAINING SCHEDULE ("Für dich in die Zukunft geplant") */}
+      <div
+        style={{
+          borderTop: "1px solid var(--border-subtle)",
+          paddingTop: "0.85rem",
+          display: "flex",
+          flexDirection: "column",
+          gap: "0.7rem",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: "0.5rem",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              fontSize: "0.8rem",
+              fontWeight: 800,
+              color: "var(--pastel-lavender)",
+            }}
+          >
+            <CalendarClock size={15} />
+            <span>
+              Dein 7-Tage Zukunfts-Fahrplan (Klicke auf einen Tag für deine
+              Ziel-Gewichte):
+            </span>
+          </div>
+          <span style={{ fontSize: "0.73rem", color: "var(--text-secondary)" }}>
+            Automatisch geplant aus Regeneration (48–72h) &amp; deinen
+            Stamm-Tagen
+          </span>
+        </div>
+
+        {/* 7-Day Horizontal Timeline Strip */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(112px, 1fr))",
+            gap: "0.45rem",
+          }}
+        >
+          {briefing.futureSchedule.slice(0, 7).map((day, idx) => {
+            const isSelected = idx === selectedFutureIdx;
+            const borderColor =
+              day.type === "gym"
+                ? "var(--pastel-lavender)"
+                : day.type === "cardio"
+                  ? "var(--pastel-mint)"
+                  : day.type === "completed"
+                    ? "var(--pastel-mint)"
+                    : "var(--border-subtle)";
+
+            const bg = isSelected
+              ? day.type === "gym"
+                ? "rgba(203, 166, 247, 0.22)"
+                : day.type === "cardio"
+                  ? "rgba(166, 227, 161, 0.18)"
+                  : "rgba(255, 255, 255, 0.09)"
+              : "var(--bg-soft)";
+
+            return (
+              <button
+                key={day.dateIso}
+                type="button"
+                onClick={() => setSelectedFutureIdx(idx)}
+                style={{
+                  textAlign: "left",
+                  padding: "0.55rem 0.65rem",
+                  borderRadius: 12,
+                  background: bg,
+                  border: isSelected
+                    ? `1.5px solid ${borderColor}`
+                    : "1px solid var(--border-subtle)",
+                  cursor: "pointer",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 3,
+                  transition: "all 0.15s ease",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    fontSize: "0.7rem",
+                    color: "var(--text-secondary)",
+                    fontWeight: 700,
+                  }}
+                >
+                  <span>{day.relativeLabel}</span>
+                  <span>{day.dateIso.slice(8, 10)}.{day.dateIso.slice(5, 7)}.</span>
+                </div>
+                <div
+                  style={{
+                    fontSize: "0.79rem",
+                    fontWeight: 800,
+                    color:
+                      day.type === "gym"
+                        ? "var(--pastel-lavender)"
+                        : day.type === "cardio" || day.type === "completed"
+                          ? "var(--pastel-mint)"
+                          : "var(--text-primary)",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {day.badgeText}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Selected Future Day Details + Concrete Target Weights */}
+        {selectedFutureDay && (
+          <div
+            style={{
+              background: "var(--bg-soft)",
+              borderRadius: 14,
+              padding: "0.8rem 1rem",
+              border: "1px solid var(--border-subtle)",
+              display: "flex",
+              flexDirection: "column",
+              gap: "0.65rem",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: "0.6rem",
+              }}
+            >
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <div
+                  style={{
+                    fontSize: "0.86rem",
+                    fontWeight: 800,
+                    color: "var(--text-primary)",
+                  }}
+                >
+                  {selectedFutureDay.weekdayFull} ({selectedFutureDay.dateIso}):{" "}
+                  <span style={{ color: "var(--pastel-lavender)" }}>
+                    {selectedFutureDay.title}
+                  </span>
+                </div>
+                <div
+                  style={{
+                    fontSize: "0.77rem",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  {selectedFutureDay.reason}
+                </div>
+              </div>
+
+              {selectedFutureDay.type === "gym" &&
+                selectedFutureDay.templateName && (
+                  <button
+                    type="button"
+                    className="pastel-btn btn-lavender"
+                    style={{ padding: "0.45rem 0.9rem", fontSize: "0.78rem" }}
+                    onClick={() => onStartGym(selectedFutureDay.templateName)}
+                  >
+                    <Dumbbell size={14} />
+                    <span>
+                      „{selectedFutureDay.templateName}“ mit Ziel-Gewichten
+                      öffnen
+                    </span>
+                  </button>
+                )}
+            </div>
+
+            {selectedFutureDay.exercises.length > 0 && (
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(215px, 1fr))",
+                  gap: "0.45rem",
+                  paddingTop: "0.45rem",
+                  borderTop: "1px solid var(--border-subtle)",
+                }}
+              >
+                {selectedFutureDay.exercises.map((ex, i) => (
+                  <div
+                    key={`${selectedFutureDay.dateIso}-${ex.name}-${i}`}
+                    style={{
+                      padding: "0.45rem 0.65rem",
+                      borderRadius: 10,
+                      background: ex.shouldIncrease
+                        ? "rgba(166, 227, 161, 0.09)"
+                        : "rgba(255, 255, 255, 0.03)",
+                      border: ex.shouldIncrease
+                        ? "1px solid rgba(166, 227, 161, 0.35)"
+                        : "1px solid var(--border-subtle)",
+                      fontSize: "0.76rem",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 2,
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        gap: 4,
+                      }}
+                    >
+                      <strong style={{ color: "var(--text-primary)" }}>
+                        {ex.name}
+                      </strong>
+                      {ex.shouldIncrease && (
+                        <span
+                          style={{
+                            color: "var(--pastel-mint)",
+                            fontWeight: 800,
+                            fontSize: "0.69rem",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 2,
+                          }}
+                        >
+                          <TrendingUp size={11} /> +Steigerung
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ color: "var(--pastel-lavender)", fontWeight: 700 }}>
+                      Ziel: {ex.targetSets} Sätze × {ex.targetReps} Wdh @{" "}
+                      <strong>{ex.suggestedWeightKg} kg</strong>{" "}
+                      <span
+                        style={{
+                          color: "var(--text-muted)",
+                          fontWeight: 400,
+                          fontSize: "0.71rem",
+                        }}
+                      >
+                        (zuletzt: {ex.previousWeightKg}kg × {ex.previousReps})
+                      </span>
+                    </div>
+                    {ex.seatNote && (
+                      <div
+                        style={{
+                          color: "var(--pastel-mint)",
+                          fontSize: "0.7rem",
+                        }}
+                      >
+                        📌 {ex.seatNote}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* DRAWER 1: LEARNED WEEKDAY HABIT RHYTHM (Opened via Burger Menu) */}
       {openDrawer === "habits" && (
         <div
           className="smooth-unfold"
           style={{
-            marginTop: "0.9rem",
             paddingTop: "0.85rem",
             borderTop: "1px solid var(--border-subtle)",
             display: "flex",
@@ -219,29 +506,20 @@ export function SmartCoachBanner({
         >
           <div
             style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              gap: "0.5rem",
+              fontSize: "0.79rem",
+              color: "var(--text-secondary)",
             }}
           >
-            <div
-              style={{
-                fontSize: "0.79rem",
-                color: "var(--text-secondary)",
-              }}
-            >
-              <strong>Wie der Coach aus deinem Verhalten lernt:</strong> Statt
-              jeden Tag mit 1 Training als Sporttag zu werten, filtert der
-              Algorithmus deine{" "}
-              <strong style={{ color: "var(--pastel-lavender)" }}>
-                Top-{Math.max(1, Math.round(briefing.learnedGymPerWeek))} Stamm-Trainingstage
-              </strong>{" "}
-              heraus (aus 11 Sessions: <strong>Donnerstag</strong> &amp;{" "}
-              <strong>Sonntag/Freitag</strong>, mit Ø{" "}
-              <strong>{briefing.learnedAvgRestDays} Tagen Pause</strong> zwischen
-              Einheiten):
-            </div>
+            <strong>Wie der Coach aus deinem Verhalten lernt:</strong> Statt
+            jeden Tag mit 1 Training als Sporttag zu werten, filtert der
+            Algorithmus deine{" "}
+            <strong style={{ color: "var(--pastel-lavender)" }}>
+              Top-{Math.max(1, Math.round(briefing.learnedGymPerWeek))} Stamm-Trainingstage
+            </strong>{" "}
+            heraus (aus 11 Sessions: <strong>Donnerstag</strong> &amp;{" "}
+            <strong>Sonntag/Freitag</strong>, mit Ø{" "}
+            <strong>{briefing.learnedAvgRestDays} Tagen Pause</strong> zwischen
+            Einheiten):
           </div>
 
           <div
@@ -330,7 +608,6 @@ export function SmartCoachBanner({
         <div
           className="smooth-unfold"
           style={{
-            marginTop: "0.95rem",
             paddingTop: "0.95rem",
             borderTop: "1px solid var(--border-subtle)",
             display: "flex",
@@ -341,25 +618,17 @@ export function SmartCoachBanner({
           <div
             style={{
               display: "flex",
-              justifyContent: "space-between",
               alignItems: "center",
+              gap: 6,
+              fontSize: "0.9rem",
+              fontWeight: 800,
+              color: "var(--pastel-lavender)",
             }}
           >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                fontSize: "0.9rem",
-                fontWeight: 800,
-                color: "var(--pastel-lavender)",
-              }}
-            >
-              <FlaskConical size={16} />
-              <span>
-                Sportwissenschaftliches Labor &amp; Progression-Analyse
-              </span>
-            </div>
+            <FlaskConical size={16} />
+            <span>
+              Sportwissenschaftliches Labor &amp; Progression-Analyse
+            </span>
           </div>
 
           {/* Athlete Profile Bar */}

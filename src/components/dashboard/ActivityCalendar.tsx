@@ -7,14 +7,18 @@ import {
   Flame,
   CalendarDays,
   History,
+  Dumbbell,
 } from "lucide-react";
 import type { FitnessDataset } from "@/lib/db/schema";
+import type { PlannedFutureDay } from "@/lib/coach";
 
 interface ActivityCalendarProps {
   data: FitnessDataset;
   todayIso: string;
   weeklyStreakCount: number;
   activeDaysThisWeek: number;
+  futureSchedule?: PlannedFutureDay[];
+  onStartPlannedGym?: (templateName: string) => void;
 }
 
 const WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
@@ -38,8 +42,9 @@ export function ActivityCalendar({
   todayIso,
   weeklyStreakCount,
   activeDaysThisWeek,
+  futureSchedule = [],
+  onStartPlannedGym,
 }: ActivityCalendarProps) {
-  // Find latest logged activity date across all disciplines (so imported 2025/2026 Hevy CSVs are immediately visible!)
   const allDates = [
     ...data.gym.map((g) => g.sessionDate),
     ...data.cardio.map((c) => c.sessionDate),
@@ -58,7 +63,6 @@ export function ActivityCalendar({
   );
   const [selectedDay, setSelectedDay] = useState<string>(latestActivityDate);
 
-  // When a new CSV import arrives and changes latestActivityDate, jump to it automatically
   useEffect(() => {
     if (latestActivityDate) {
       setYear(Number(latestActivityDate.slice(0, 4)));
@@ -99,6 +103,7 @@ export function ActivityCalendar({
   const dayBoulder = data.bouldering.filter(
     (b) => b.sessionDate === selectedDay
   );
+  const plannedDay = futureSchedule.find((f) => f.dateIso === selectedDay);
 
   return (
     <div
@@ -118,7 +123,7 @@ export function ActivityCalendar({
         <div style={{ display: "flex", alignItems: "center", gap: "0.55rem" }}>
           <CalendarDays size={20} color="var(--pastel-lavender)" />
           <h2 className="panel-title" style={{ margin: 0 }}>
-            Aktivitäts-Kalender
+            Aktivitäts- &amp; Zukunfts-Kalender
           </h2>
         </div>
 
@@ -206,6 +211,11 @@ export function ActivityCalendar({
           const hasGym = data.gym.some((g) => g.sessionDate === iso);
           const hasCardio = data.cardio.some((c) => c.sessionDate === iso);
           const hasBoulder = data.bouldering.some((b) => b.sessionDate === iso);
+          const futurePlan =
+            !hasGym && !hasCardio && !hasBoulder
+              ? futureSchedule.find((f) => f.dateIso === iso)
+              : undefined;
+
           const isSelected = selectedDay === iso;
           const isToday = todayIso === iso;
 
@@ -217,6 +227,21 @@ export function ActivityCalendar({
               className={`calendar-cell ${isSelected ? "selected" : ""} ${
                 isToday ? "today" : ""
               }`}
+              style={
+                futurePlan?.type === "gym"
+                  ? {
+                      border: isSelected
+                        ? "1.5px solid var(--pastel-lavender)"
+                        : "1px dashed rgba(203, 166, 247, 0.55)",
+                    }
+                  : futurePlan?.type === "cardio"
+                    ? {
+                        border: isSelected
+                          ? "1.5px solid var(--pastel-mint)"
+                          : "1px dashed rgba(166, 227, 161, 0.45)",
+                      }
+                    : undefined
+              }
             >
               <span className="calendar-day-num">
                 {Number(iso.slice(8, 10))}
@@ -226,21 +251,41 @@ export function ActivityCalendar({
                   <span
                     className="cal-dot"
                     style={{ backgroundColor: "var(--pastel-lavender)" }}
-                    title="Gym"
+                    title="Gym erledigt"
                   />
                 )}
                 {hasCardio && (
                   <span
                     className="cal-dot"
                     style={{ backgroundColor: "var(--pastel-mint)" }}
-                    title="Cardio / Sport"
+                    title="Cardio / Sport erledigt"
                   />
                 )}
                 {hasBoulder && (
                   <span
                     className="cal-dot"
                     style={{ backgroundColor: "var(--pastel-peach)" }}
-                    title="Bouldern"
+                    title="Bouldern erledigt"
+                  />
+                )}
+                {futurePlan?.type === "gym" && (
+                  <span
+                    className="cal-dot"
+                    style={{
+                      backgroundColor: "transparent",
+                      border: "2px solid var(--pastel-lavender)",
+                    }}
+                    title={`Geplant: ${futurePlan.title}`}
+                  />
+                )}
+                {futurePlan?.type === "cardio" && (
+                  <span
+                    className="cal-dot"
+                    style={{
+                      backgroundColor: "transparent",
+                      border: "2px solid var(--pastel-mint)",
+                    }}
+                    title={`Geplant: ${futurePlan.title}`}
                   />
                 )}
               </div>
@@ -253,27 +298,37 @@ export function ActivityCalendar({
       <div
         style={{
           display: "flex",
-          gap: "1rem",
-          fontSize: "0.75rem",
+          gap: "0.85rem",
+          fontSize: "0.73rem",
           color: "var(--text-secondary)",
           flexWrap: "wrap",
         }}
       >
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
           <span
             className="cal-dot"
             style={{ backgroundColor: "var(--pastel-lavender)" }}
           />
-          Gym Workout
+          Gym erledigt
         </span>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+          <span
+            className="cal-dot"
+            style={{
+              backgroundColor: "transparent",
+              border: "2px solid var(--pastel-lavender)",
+            }}
+          />
+          Gym geplant (Zukunft)
+        </span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
           <span
             className="cal-dot"
             style={{ backgroundColor: "var(--pastel-mint)" }}
           />
-          Cardio / Strava Sport
+          Cardio / Sport
         </span>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
           <span
             className="cal-dot"
             style={{ backgroundColor: "var(--pastel-peach)" }}
@@ -282,7 +337,7 @@ export function ActivityCalendar({
         </span>
       </div>
 
-      {/* Selected Day Details */}
+      {/* Selected Day Details (Past Logged OR Future Coach Plan!) */}
       <div
         style={{
           background: "var(--bg-soft)",
@@ -299,15 +354,12 @@ export function ActivityCalendar({
             marginBottom: "0.45rem",
           }}
         >
-          Aktivitäten am {selectedDay}:
+          {selectedDay > todayIso
+            ? `Vom Coach geplant für ${selectedDay}:`
+            : `Aktivitäten am ${selectedDay}:`}
         </div>
-        {dayGym.length === 0 &&
-        dayCardio.length === 0 &&
-        dayBoulder.length === 0 ? (
-          <p style={{ fontSize: "0.83rem", color: "var(--text-muted)" }}>
-            Kein Training an diesem Tag eingetragen (Rest Day ✨).
-          </p>
-        ) : (
+
+        {dayGym.length > 0 || dayCardio.length > 0 || dayBoulder.length > 0 ? (
           <div
             style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}
           >
@@ -355,6 +407,93 @@ export function ActivityCalendar({
               </div>
             ))}
           </div>
+        ) : plannedDay ? (
+          <div
+            style={{ display: "flex", flexDirection: "column", gap: "0.45rem" }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: "0.5rem",
+              }}
+            >
+              <strong
+                style={{
+                  fontSize: "0.86rem",
+                  color:
+                    plannedDay.type === "gym"
+                      ? "var(--pastel-lavender)"
+                      : plannedDay.type === "cardio"
+                        ? "var(--pastel-mint)"
+                        : "var(--text-primary)",
+                }}
+              >
+                {plannedDay.title}
+              </strong>
+              {plannedDay.type === "gym" &&
+                plannedDay.templateName &&
+                onStartPlannedGym && (
+                  <button
+                    type="button"
+                    className="pill-tab active"
+                    style={{ fontSize: "0.73rem", padding: "0.26rem 0.65rem" }}
+                    onClick={() =>
+                      onStartPlannedGym(plannedDay.templateName ?? "Drücken")
+                    }
+                  >
+                    <Dumbbell
+                      size={12}
+                      style={{ display: "inline", marginRight: 4 }}
+                    />
+                    Plan öffnen
+                  </button>
+                )}
+            </div>
+            <p
+              style={{
+                fontSize: "0.79rem",
+                color: "var(--text-secondary)",
+                margin: 0,
+              }}
+            >
+              {plannedDay.reason}
+            </p>
+            {plannedDay.exercises.length > 0 && (
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "0.25rem",
+                  paddingTop: "0.35rem",
+                }}
+              >
+                {plannedDay.exercises.map((ex, i) => (
+                  <div
+                    key={`plan-${i}`}
+                    style={{ fontSize: "0.78rem", color: "var(--text-primary)" }}
+                  >
+                    • <strong>{ex.name}:</strong> {ex.targetSets}×{ex.targetReps}{" "}
+                    @{" "}
+                    <span style={{ color: "var(--pastel-lavender)", fontWeight: 700 }}>
+                      {ex.suggestedWeightKg} kg
+                    </span>{" "}
+                    {ex.shouldIncrease && (
+                      <span style={{ color: "var(--pastel-mint)", fontWeight: 700 }}>
+                        (🔼 Steigerung!)
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <p style={{ fontSize: "0.83rem", color: "var(--text-muted)" }}>
+            Kein Training an diesem Tag eingetragen (Rest Day ✨).
+          </p>
         )}
       </div>
     </div>
