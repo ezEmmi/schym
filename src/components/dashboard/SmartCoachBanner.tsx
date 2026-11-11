@@ -155,6 +155,15 @@ export function SmartCoachBanner({
                 Dein Rhythmus: ~{briefing.learnedGymPerWeek}× Gym/Woche • Ø{" "}
                 {briefing.learnedAvgRestDays} Tage Pause
               </span>
+              <span
+                style={{
+                  fontSize: "0.71rem",
+                  color: "var(--text-muted)",
+                  fontWeight: 600,
+                }}
+              >
+                • {briefing.liveDataSummary}
+              </span>
             </div>
 
             <div

@@ -285,6 +285,69 @@ describe("Smart Habit-Engine, Overload Coach & Hevy Parser", () => {
     expect(briefing.recommendedAction).toBe("gym");
     expect(briefing.pendingSupplementNames).toContain("Kreatin (5g)");
     expect(briefing.signalMessageText).toContain("Kreatin (5g)");
+    expect(briefing.futureSchedule.length).toBe(14);
+  });
+
+  it("dynamically updates the 14-day future schedule when new Bouldering or Cardio sessions are logged", () => {
+    const afterBoulderBriefing = computeCoachBriefing(
+      {
+        gym: [
+          {
+            id: 1,
+            sessionDate: "2026-11-08",
+            workoutFocus: "Drücken",
+            exerciseName: "Brustpresse",
+            muscleGroup: "chest",
+            sets: 3,
+            reps: 10,
+            weightKg: 23,
+            rpe: 8,
+            estimated1Rm: 30.7,
+            notes: "",
+            createdAt: "2026-11-08T18:00:00Z",
+          },
+        ],
+        cardio: [],
+        bouldering: [
+          {
+            id: 10,
+            sessionDate: "2026-11-11",
+            location: "Boulderwelt",
+            grade: "6B",
+            style: "Flash",
+            wallAngle: "Overhang",
+            attempts: 1,
+            topped: true,
+            durationMinutes: 60,
+            skinAndFingerFeel: 8,
+            notes: "",
+            createdAt: "2026-11-11T19:00:00Z",
+          },
+        ],
+        templates: [
+          {
+            id: 1,
+            name: "Drücken",
+            exercises: [],
+            createdAt: "2026-11-01T00:00:00Z",
+          },
+          {
+            id: 2,
+            name: "Ziehen",
+            exercises: [],
+            createdAt: "2026-11-01T00:00:00Z",
+          },
+        ],
+        supplements: [],
+        supplementLogs: [],
+      },
+      "2026-11-11"
+    );
+
+    expect(afterBoulderBriefing.trainedToday).toBe(true);
+    expect(afterBoulderBriefing.futureSchedule[0]?.type).toBe("completed");
+    // Because Bouldering fatigued pulling muscles today, the Coach prioritizes "Drücken" (Push) for the next Gym session!
+    expect(afterBoulderBriefing.recommendedTemplate?.name).toBe("Drücken");
   });
 
   it("parses Hevy workout descriptions from Strava activities", () => {

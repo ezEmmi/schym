@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   RefreshCw,
   CheckCircle2,
@@ -9,8 +9,11 @@ import {
   KeyRound,
   X,
   Sparkles,
+  Send,
+  Download,
+  Copy,
 } from "lucide-react";
-import type { FitnessDataset } from "@/lib/db/schema";
+import type { FitnessDataset, GymEntry } from "@/lib/db/schema";
 import {
   parseHevyCsv,
   parseStravaActivitiesCsv,
@@ -25,7 +28,16 @@ interface StravaSyncModuleProps {
   onClose?: () => void;
 }
 
-type ImportTab = "file_drop" | "copy_paste" | "oauth_free";
+type SyncTab = "push_to_strava" | "file_drop" | "copy_paste" | "oauth_free";
+
+const STRAVA_CREDS_KEY = "schym_strava_creds_v1";
+
+interface SavedStravaCreds {
+  clientId: string;
+  clientSecret: string;
+  accessToken: string;
+  refreshToken?: string;
+}
 
 export function StravaSyncModule({
   currentData,
@@ -33,9 +45,10 @@ export function StravaSyncModule({
   onError,
   onClose,
 }: StravaSyncModuleProps) {
-  const [activeTab, setActiveTab] = useState<ImportTab>("file_drop");
+  const [activeTab, setActiveTab] = useState<SyncTab>("push_to_strava");
   const [isSyncing, setIsSyncing] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
 
   const [pasteFormat, setPasteFormat] = useState<
     "strava_copy_paste" | "hevy_csv"
@@ -44,7 +57,216 @@ export function StravaSyncModule({
 
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
+  const [accessToken, setAccessToken] = useState("");
   const [oauthCode, setOauthCode] = useState("");
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(STRAVA_CREDS_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<SavedStravaCreds>;
+        if (parsed.clientId) setClientId(parsed.clientId);
+        if (parsed.clientSecret) setClientSecret(parsed.clientSecret);
+        if (parsed.accessToken) setAccessToken(parsed.accessToken);
+      }
+    } catch {
+      // ignore storage read error
+    }
+  }, []);
+
+  function saveStravaCreds(next: SavedStravaCreds) {
+    setClientId(next.clientId);
+    setClientSecret(next.clientSecret);
+    setAccessToken(next.accessToken);
+    try {
+      window.localStorage.setItem(STRAVA_CREDS_KEY, JSON.stringify(next));
+    } catch {
+      // ignore
+    }
+  }
+
+  // Group Gym workouts by (sessionDate + workoutFocus) so the user can push any completed Gym workout to Strava!
+  const groupedWorkouts = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        key: string;
+        sessionDate: string;
+        workoutFocus: string;
+        exercises: GymEntry[];
+        totalSets: number;
+        totalVolumeKg: number;
+      }
+    >();
+
+    for (const g of currentData.gym) {
+      const key = `${g.sessionDate}__${g.workoutFocus}`;
+      const existing = map.get(key);
+      const vol = g.sets * g.reps * g.weightKg;
+      if (!existing) {
+        map.set(key, {
+          key,
+          sessionDate: g.sessionDate,
+          workoutFocus: g.workoutFocus,
+          exercises: [g],
+          totalSets: g.sets,
+          totalVolumeKg: Math.round(vol),
+        });
+      } else {
+        existing.exercises.push(g);
+        existing.totalSets += g.sets;
+        existing.totalVolumeKg = Math.round(existing.totalVolumeKg + vol);
+      }
+    }
+
+    return Array.from(map.values()).sort((a, b) =>
+      b.sessionDate.localeCompare(a.sessionDate)
+    );
+  }, [currentData.gym]);
+
+  function formatWorkoutDescriptionForStrava(workout: {
+    sessionDate: string;
+    workoutFocus: string;
+    exercises: GymEntry[];
+    totalSets: number;
+    totalVolumeKg: number;
+  }): string {
+    const lines = workout.exercises.map((ex) => {
+      const setDetail =
+        ex.notes && ex.notes.startsWith("Sätze:") ? ` (${ex.notes})` : "";
+      return `• ${ex.exerciseName}: ${ex.sets} × ${ex.reps} @ ${ex.weightKg} kg (e1RM ${ex.estimated1Rm} kg)${setDetail}`;
+    });
+    return [
+      `🏋️ Schym Gym Workout: ${workout.workoutFocus} (${workout.sessionDate})`,
+      `📊 Gesamt: ${workout.exercises.length} Übungen • ${workout.totalSets} Sätze • ${workout.totalVolumeKg.toLocaleString("de-DE")} kg Bewegt-Volumen`,
+      "",
+      ...lines,
+    ].join("\n");
+  }
+
+  async function handlePushWorkoutToStravaApi(workout: {
+    sessionDate: string;
+    workoutFocus: string;
+    exercises: GymEntry[];
+    totalSets: number;
+    totalVolumeKg: number;
+  }) {
+    setStatusMessage(null);
+    setLocalError(null);
+
+    if (!accessToken.trim()) {
+      setLocalError(
+        "Bitte trage unten (oder im Tab „Strava API Verbinden“) einmalig deinen kostenlosen Strava Access-Token ein, oder nutze den 1-Klick TCX-Download!"
+      );
+      return;
+    }
+
+    setIsSyncing(true);
+    try {
+      const description = formatWorkoutDescriptionForStrava(workout);
+      const startIso = `${workout.sessionDate}T18:00:00Z`;
+
+      const res = await fetch("https://www.strava.com/api/v3/activities", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken.trim()}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: `${workout.workoutFocus} 💪 (Schym)`,
+          type: "WeightTraining",
+          sport_type: "WeightTraining",
+          start_date_local: startIso,
+          elapsed_time: Math.max(1800, workout.totalSets * 150),
+          description,
+        }),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "");
+        setLocalError(
+          `Strava API Antwort (HTTP ${res.status}): Stelle sicher, dass dein Token die Berechtigung „activity:write“ hat (${errText.slice(0, 90)}).`
+        );
+        return;
+      }
+
+      setStatusMessage(
+        `Workout „${workout.workoutFocus}“ (${workout.sessionDate}) erfolgreich direkt in deinen Strava-Feed gepostet! 🧡`
+      );
+    } catch {
+      setLocalError(
+        "Verbindung zu Strava fehlgeschlagen. Nutze alternativ den `.tcx`-Download rechts daneben!"
+      );
+    } finally {
+      setIsSyncing(false);
+    }
+  }
+
+  function handleDownloadTcxForStrava(workout: {
+    sessionDate: string;
+    workoutFocus: string;
+    exercises: GymEntry[];
+    totalSets: number;
+    totalVolumeKg: number;
+  }) {
+    const startIso = `${workout.sessionDate}T18:00:00Z`;
+    const durationSec = Math.max(1800, workout.totalSets * 150);
+    const notesXml = formatWorkoutDescriptionForStrava(workout)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+
+    const tcxContent = `<?xml version="1.0" encoding="UTF-8"?>
+<TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2">
+  <Activities>
+    <Activity Sport="Other">
+      <Id>${startIso}</Id>
+      <Lap StartTime="${startIso}">
+        <TotalTimeSeconds>${durationSec}</TotalTimeSeconds>
+        <DistanceMeters>0</DistanceMeters>
+        <Calories>${Math.round(durationSec * 0.12)}</Calories>
+        <Intensity>Active</Intensity>
+        <TriggerMethod>Manual</TriggerMethod>
+      </Lap>
+      <Notes>${notesXml}</Notes>
+    </Activity>
+  </Activities>
+</TrainingCenterDatabase>`;
+
+    const blob = new Blob([tcxContent], {
+      type: "application/vnd.garmin.tcx+xml;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `schym-${workout.sessionDate}-${workout.workoutFocus.toLowerCase()}.tcx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    setStatusMessage(
+      `TCX-Datei für „${workout.workoutFocus}“ (${workout.sessionDate}) heruntergeladen! Du kannst sie auf strava.com/upload/select direkt reinziehen.`
+    );
+  }
+
+  async function handleCopyStravaDescription(workout: {
+    sessionDate: string;
+    workoutFocus: string;
+    exercises: GymEntry[];
+    totalSets: number;
+    totalVolumeKg: number;
+  }) {
+    const text = formatWorkoutDescriptionForStrava(workout);
+    try {
+      await navigator.clipboard.writeText(text);
+      setStatusMessage(
+        `Workout-Zusammenfassung für „${workout.workoutFocus}“ in die Zwischenablage kopiert!`
+      );
+    } catch {
+      setStatusMessage("Text bereit zum Kopieren.");
+    }
+  }
 
   function mergeClientSideImport(
     format: "hevy_csv" | "strava_csv" | "strava_copy_paste",
@@ -133,6 +355,7 @@ export function StravaSyncModule({
     rawContent: string
   ) {
     setStatusMessage(null);
+    setLocalError(null);
     setIsSyncing(true);
     try {
       const res = await fetch("/api/strava/sync", {
@@ -154,27 +377,30 @@ export function StravaSyncModule({
         if (json.ok && json.data) {
           setPastedText("");
           setStatusMessage(
-            `${json.importedCount ?? 0} Einträge erfolgreich importiert!`
+            `${json.importedCount ?? 0} Einträge erfolgreich importiert & Coach-Plan aktualisiert!`
           );
           onSynced(json.data, json.importedCount ?? 0);
           return;
         }
       }
 
-      // Fallback for GitHub Pages (static mode without /api route)
       const { merged, count } = mergeClientSideImport(format, rawContent);
       if (count === 0) {
         onError("Keine passenden Aktivitäten im CSV/Text erkannt.");
         return;
       }
       setPastedText("");
-      setStatusMessage(`${count} Einträge erfolgreich importiert!`);
+      setStatusMessage(
+        `${count} Einträge erfolgreich importiert & Coach-Plan aktualisiert!`
+      );
       onSynced(merged, count);
     } catch {
       const { merged, count } = mergeClientSideImport(format, rawContent);
       if (count > 0) {
         setPastedText("");
-        setStatusMessage(`${count} Einträge im Handy-Speicher importiert!`);
+        setStatusMessage(
+          `${count} Einträge erfolgreich importiert & Coach-Plan aktualisiert!`
+        );
         onSynced(merged, count);
       } else {
         onError("Import fehlgeschlagen.");
@@ -195,45 +421,95 @@ export function StravaSyncModule({
     e.target.value = "";
   }
 
-  async function handleOauthCodeExchange(e: React.FormEvent) {
+  async function handleBrowserOAuthExchangeAndSync(e: React.FormEvent) {
     e.preventDefault();
     setStatusMessage(null);
+    setLocalError(null);
     setIsSyncing(true);
+
     try {
       let cleanCode = oauthCode.trim();
       if (cleanCode.includes("code=")) {
         const match = /[?&]code=([^&]+)/.exec(cleanCode);
-        if (match?.[1]) cleanCode = match[1];
+        if (match?.[1]) cleanCode = decodeURIComponent(match[1]);
       }
 
-      const res = await fetch("/api/strava/sync", {
+      // Exchange OAuth code directly from the browser with Strava so it works even inside sandboxed dev server or GitHub Pages!
+      const tokenRes = await fetch("https://www.strava.com/oauth/token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          mode: "oauth_code",
-          clientId: clientId.trim(),
-          clientSecret: clientSecret.trim(),
+          client_id: clientId.trim(),
+          client_secret: clientSecret.trim(),
           code: cleanCode,
-          perPage: 50,
+          grant_type: "authorization_code",
         }),
       });
-      const json = (await res.json()) as {
-        ok: boolean;
-        importedCount?: number;
-        data?: FitnessDataset;
-        error?: string;
-      };
-      if (!res.ok || !json.ok || !json.data) {
-        onError(json.error ?? "OAuth Code Austausch fehlgeschlagen.");
+
+      if (!tokenRes.ok) {
+        setLocalError(
+          `Strava Code-Austausch fehlgeschlagen (HTTP ${tokenRes.status}). Prüfe Client ID & Secret.`
+        );
         return;
       }
+
+      const tokenJson = (await tokenRes.json()) as {
+        access_token?: string;
+        refresh_token?: string;
+      };
+      const newToken = tokenJson.access_token ?? "";
+      if (!newToken) {
+        setLocalError("Kein Access-Token von Strava erhalten.");
+        return;
+      }
+
+      saveStravaCreds({
+        clientId: clientId.trim(),
+        clientSecret: clientSecret.trim(),
+        accessToken: newToken,
+        refreshToken: tokenJson.refresh_token,
+      });
       setOauthCode("");
-      setStatusMessage(
-        `${json.importedCount ?? 0} Aktivitäten über die Strava API geladen!`
+
+      // Also fetch latest activities from Strava right away
+      const actRes = await fetch(
+        "https://www.strava.com/api/v3/athlete/activities?per_page=30",
+        {
+          headers: { Authorization: `Bearer ${newToken}` },
+        }
       );
-      onSynced(json.data, json.importedCount ?? 0);
+      if (actRes.ok) {
+        const activities = (await actRes.json()) as unknown[];
+        const apiSave = await fetch("/api/strava/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            mode: "json",
+            activities,
+          }),
+        }).catch(() => null);
+
+        if (apiSave && apiSave.ok) {
+          const json = (await apiSave.json()) as {
+            ok: boolean;
+            importedCount?: number;
+            data?: FitnessDataset;
+          };
+          if (json.ok && json.data) {
+            setStatusMessage(
+              `Strava verbunden ✅! ${json.importedCount ?? 0} Aktivitäten geladen & Push-Berechtigung aktiv.`
+            );
+            onSynced(json.data, json.importedCount ?? 0);
+            return;
+          }
+        }
+      }
+
+      setStatusMessage(
+        "Strava erfolgreich verbunden ✅! Du kannst deine Schym-Workouts jetzt mit 1 Klick zu Strava posten."
+      );
     } catch {
-      onError("Strava OAuth benötigt den lokalen Server.");
+      setLocalError("Strava-Verbindung fehlgeschlagen.");
     } finally {
       setIsSyncing(false);
     }
@@ -241,7 +517,7 @@ export function StravaSyncModule({
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true">
-      <div className="modal-sheet" style={{ maxWidth: 580 }}>
+      <div className="modal-sheet" style={{ maxWidth: 620 }}>
         <div
           style={{
             display: "flex",
@@ -252,9 +528,15 @@ export function StravaSyncModule({
             marginBottom: "1rem",
           }}
         >
-          <h2 style={{ fontSize: "1.12rem", fontWeight: 800 }}>
-            Hevy &amp; Strava Import 📥
-          </h2>
+          <div>
+            <h2 style={{ fontSize: "1.12rem", fontWeight: 800 }}>
+              Strava 2-Wege-Sync &amp; Hevy Import 🔄
+            </h2>
+            <p style={{ fontSize: "0.76rem", color: "var(--text-secondary)" }}>
+              Schym-Workouts zu Strava posten (wie bei Hevy) oder Strava/Hevy-Daten
+              importieren
+            </p>
+          </div>
           {onClose && (
             <button
               type="button"
@@ -267,7 +549,7 @@ export function StravaSyncModule({
           )}
         </div>
 
-        {/* Clean 3-Tab Switcher */}
+        {/* 4-Tab Switcher */}
         <div
           style={{
             display: "flex",
@@ -278,11 +560,21 @@ export function StravaSyncModule({
         >
           <button
             type="button"
+            className={`pill-tab ${
+              activeTab === "push_to_strava" ? "active" : ""
+            }`}
+            onClick={() => setActiveTab("push_to_strava")}
+          >
+            <Send size={13} style={{ display: "inline", marginRight: 5 }} />
+            Von Schym zu Strava 📤
+          </button>
+          <button
+            type="button"
             className={`pill-tab ${activeTab === "file_drop" ? "active" : ""}`}
             onClick={() => setActiveTab("file_drop")}
           >
             <Upload size={13} style={{ display: "inline", marginRight: 5 }} />
-            CSV-Datei Upload
+            CSV Import 📥
           </button>
           <button
             type="button"
@@ -301,7 +593,7 @@ export function StravaSyncModule({
             onClick={() => setActiveTab("oauth_free")}
           >
             <KeyRound size={13} style={{ display: "inline", marginRight: 5 }} />
-            Strava API
+            Strava API Verbinden
           </button>
         </div>
 
@@ -325,6 +617,194 @@ export function StravaSyncModule({
           </div>
         )}
 
+        {localError && (
+          <div className="error-banner" style={{ marginBottom: "0.9rem" }}>
+            {localError}
+          </div>
+        )}
+
+        {/* TAB 1: PUSH FROM SCHYM TO STRAVA ("Von mir zu Strava syncen") */}
+        {activeTab === "push_to_strava" && (
+          <div
+            style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}
+          >
+            <div
+              style={{
+                background: "var(--bg-soft)",
+                padding: "0.85rem 1rem",
+                borderRadius: 14,
+                border: "1px solid rgba(250, 179, 135, 0.35)",
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.5rem",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                  gap: "0.5rem",
+                }}
+              >
+                <strong
+                  style={{ fontSize: "0.85rem", color: "var(--pastel-peach)" }}
+                >
+                  🧡 Deine Schym-Workouts zu Strava übertragen (100% kostenlos):
+                </strong>
+                {accessToken ? (
+                  <span className="badge badge-cardio" style={{ fontSize: "0.7rem" }}>
+                    Strava Token bereit ✅
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    className="pill-tab"
+                    style={{ fontSize: "0.72rem", padding: "0.25rem 0.6rem" }}
+                    onClick={() => setActiveTab("oauth_free")}
+                  >
+                    Optional: Strava API-Token hinterlegen →
+                  </button>
+                )}
+              </div>
+              <div
+                style={{ fontSize: "0.77rem", color: "var(--text-secondary)" }}
+              >
+                Wähle unten ein Training aus: Mit{" "}
+                <strong>„Direkt zu Strava posten“</strong> landet es sofort inkl.
+                aller Übungen, Sätze &amp; Gewichte in deinem Strava-Feed (wie
+                früher bei Hevy). Oder lade mit <strong>„.TCX“</strong> die
+                fertige Trainingsdatei für{" "}
+                <a
+                  href="https://www.strava.com/upload/select"
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ color: "var(--pastel-peach)" }}
+                >
+                  strava.com/upload/select
+                </a>{" "}
+                herunter!
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.55rem",
+                maxHeight: 340,
+                overflowY: "auto",
+              }}
+            >
+              {groupedWorkouts.slice(0, 12).map((w) => (
+                <div
+                  key={w.key}
+                  style={{
+                    background: "var(--bg-soft)",
+                    borderRadius: 14,
+                    padding: "0.75rem 0.95rem",
+                    border: "1px solid var(--border-subtle)",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                    gap: "0.6rem",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 2,
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                        fontSize: "0.86rem",
+                        fontWeight: 800,
+                      }}
+                    >
+                      <span className="badge badge-gym">{w.workoutFocus}</span>
+                      <span>{w.sessionDate}</span>
+                    </div>
+                    <span
+                      style={{
+                        fontSize: "0.75rem",
+                        color: "var(--text-secondary)",
+                      }}
+                    >
+                      {w.exercises.length} Übungen • {w.totalSets} Sätze •{" "}
+                      {w.totalVolumeKg.toLocaleString("de-DE")} kg Volumen
+                    </span>
+                  </div>
+
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: "0.4rem",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <button
+                      type="button"
+                      className="pastel-btn btn-peach"
+                      style={{
+                        padding: "0.4rem 0.75rem",
+                        fontSize: "0.76rem",
+                      }}
+                      disabled={isSyncing}
+                      onClick={() => void handlePushWorkoutToStravaApi(w)}
+                      title="Postet dieses Workout direkt über die Strava API in deinen Feed"
+                    >
+                      <Send size={13} />
+                      <span>Zu Strava posten</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      className="pill-tab"
+                      style={{
+                        padding: "0.4rem 0.65rem",
+                        fontSize: "0.75rem",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                      }}
+                      onClick={() => handleDownloadTcxForStrava(w)}
+                      title="Lädt eine Garmin/Strava .tcx Datei herunter"
+                    >
+                      <Download size={13} />
+                      <span>.TCX</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      className="pill-tab"
+                      style={{
+                        padding: "0.4rem 0.65rem",
+                        fontSize: "0.75rem",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                      }}
+                      onClick={() => void handleCopyStravaDescription(w)}
+                      title="Kopiert die formatierte Übungs-Übersicht für Strava"
+                    >
+                      <Copy size={13} />
+                      <span>Text</span>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 2: CSV FILE UPLOAD */}
         {activeTab === "file_drop" && (
           <div
             style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}
@@ -427,6 +907,7 @@ export function StravaSyncModule({
           </div>
         )}
 
+        {/* TAB 3: COPY & PASTE */}
         {activeTab === "copy_paste" && (
           <div
             style={{
@@ -479,11 +960,12 @@ export function StravaSyncModule({
               onClick={() => runFreeImport(pasteFormat, pastedText)}
             >
               <RefreshCw size={15} />
-              <span>Jetzt auslesen &amp; speichern</span>
+              <span>Jetzt auslesen &amp; Coach aktualisieren</span>
             </button>
           </div>
         )}
 
+        {/* TAB 4: STRAVA API OAUTH (READ + WRITE) */}
         {activeTab === "oauth_free" && (
           <div
             style={{
@@ -496,6 +978,19 @@ export function StravaSyncModule({
               gap: "0.8rem",
             }}
           >
+            <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>
+              Verbinde einmalig deine kostenlose{" "}
+              <a
+                href="https://www.strava.com/settings/api"
+                target="_blank"
+                rel="noreferrer"
+                style={{ color: "var(--pastel-peach)" }}
+              >
+                Strava API App (strava.com/settings/api)
+              </a>{" "}
+              für automatischen <strong>Import &amp; Export</strong>:
+            </div>
+
             <div className="form-row-2">
               <label className="field-label">
                 1. Strava Client ID
@@ -523,26 +1018,32 @@ export function StravaSyncModule({
               <a
                 href={`https://www.strava.com/oauth/authorize?client_id=${encodeURIComponent(
                   clientId.trim()
-                )}&response_type=code&redirect_uri=http://localhost:3000&approval_prompt=force&scope=activity:read_all`}
+                )}&response_type=code&redirect_uri=${encodeURIComponent(
+                  typeof window !== "undefined"
+                    ? window.location.origin + window.location.pathname
+                    : "http://localhost:3000"
+                )}&approval_prompt=force&scope=activity:read_all,activity:write`}
                 target="_blank"
                 rel="noreferrer"
                 className="pastel-btn btn-peach"
                 style={{ textDecoration: "none" }}
               >
-                Schritt A: Bei Strava autorisieren ↗
+                Schritt A: Bei Strava autorisieren (Lesen &amp; Posten) ↗
               </a>
             )}
 
-            <form className="form-stack" onSubmit={handleOauthCodeExchange}>
+            <form
+              className="form-stack"
+              onSubmit={handleBrowserOAuthExchangeAndSync}
+            >
               <label className="field-label">
-                3. Redirect-URL (mit code=...) einfügen:
+                3. Redirect-URL (mit code=...) nach dem Klick einfügen:
                 <input
                   type="text"
                   className="field-input"
                   placeholder="http://localhost:3000/?state=&code=..."
                   value={oauthCode}
                   onChange={(e) => setOauthCode(e.target.value)}
-                  required
                 />
               </label>
               <button
@@ -555,9 +1056,45 @@ export function StravaSyncModule({
                   !oauthCode.trim()
                 }
               >
-                {isSyncing ? "Lade..." : "Schritt B: Trainings importieren"}
+                {isSyncing
+                  ? "Verbinde..."
+                  : "Schritt B: Strava-Konto verbinden & synchronisieren"}
               </button>
             </form>
+
+            <div
+              style={{
+                borderTop: "1px solid var(--border-subtle)",
+                paddingTop: "0.7rem",
+              }}
+            >
+              <label className="field-label">
+                Oder direkt vorhandenen Strava Access-Token eintragen:
+                <div style={{ display: "flex", gap: "0.45rem" }}>
+                  <input
+                    type="password"
+                    className="field-input"
+                    placeholder="Dein Strava Access Token..."
+                    value={accessToken}
+                    onChange={(e) => setAccessToken(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="pill-tab active"
+                    onClick={() => {
+                      saveStravaCreds({
+                        clientId,
+                        clientSecret,
+                        accessToken: accessToken.trim(),
+                      });
+                      setStatusMessage("Strava Access-Token gespeichert ✅!");
+                    }}
+                  >
+                    Speichern
+                  </button>
+                </div>
+              </label>
+            </div>
           </div>
         )}
       </div>

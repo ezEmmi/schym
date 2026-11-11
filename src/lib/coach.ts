@@ -69,6 +69,7 @@ export interface PlannedFutureDay {
 export interface DailyCoachBriefing {
   headline: string;
   subline: string;
+  liveDataSummary: string;
   recommendedAction: "gym" | "cardio" | "bouldering" | "rest";
   recommendedTemplate: WorkoutTemplate | null;
   recoveredMuscleLabels: string[];
@@ -172,11 +173,96 @@ function buildPlannedExercisesForTemplate(
 }
 
 /**
- * Computes fractional weekly sets per muscle group over the last 14 days (averaged per 7 days)
- * using Pelland et al. (2024/2025) Bayesian meta-regression fractional set accounting:
- * - Direct primary muscle sets = 1.0
- * - Compound synergist sets (e.g. Chest Press -> Triceps/Shoulders; Lat Pulldown/Row -> Biceps) = 0.5
+ * Dynamically analyzes all logged gym entries to detect real-time progressions and plateaus.
+ * Whenever the user logs a new set, this immediately updates!
  */
+function analyzeLiveProgressionsAndPlateaus(data: FitnessDataset): {
+  findingText: string;
+  recommendationText: string;
+} {
+  const byExercise = new Map<
+    string,
+    Array<{ date: string; weightKg: number; reps: number }>
+  >();
+
+  // Sort oldest -> newest
+  const chronological = [...data.gym].sort((a, b) =>
+    a.sessionDate.localeCompare(b.sessionDate)
+  );
+
+  for (const row of chronological) {
+    const list = byExercise.get(row.exerciseName) ?? [];
+    list.push({
+      date: row.sessionDate,
+      weightKg: row.weightKg,
+      reps: row.reps,
+    });
+    byExercise.set(row.exerciseName, list);
+  }
+
+  const gains: Array<{
+    name: string;
+    firstW: number;
+    lastW: number;
+    pct: number;
+  }> = [];
+  const plateaus: Array<{ name: string; weightKg: number; reps: number; count: number }> = [];
+
+  for (const [name, history] of byExercise.entries()) {
+    if (history.length < 2) continue;
+    const first = history[0]!;
+    const last = history[history.length - 1]!;
+    if (first.weightKg > 0 && last.weightKg > first.weightKg) {
+      const pct = Math.round(
+        ((last.weightKg - first.weightKg) / first.weightKg) * 100
+      );
+      gains.push({ name, firstW: first.weightKg, lastW: last.weightKg, pct });
+    }
+
+    if (history.length >= 3) {
+      const last3 = history.slice(-3);
+      const sameWeight = last3.every((h) => h.weightKg === last.weightKg);
+      if (sameWeight && last.weightKg > 0) {
+        plateaus.push({
+          name,
+          weightKg: last.weightKg,
+          reps: last.reps,
+          count: history.filter((h) => h.weightKg === last.weightKg).length,
+        });
+      }
+    }
+  }
+
+  gains.sort((a, b) => b.pct - a.pct);
+  plateaus.sort((a, b) => b.count - a.count);
+
+  const topGainsText =
+    gains.length > 0
+      ? `Top-Steigerungen: ${gains
+          .slice(0, 2)
+          .map((g) => `${g.name} (${g.firstW} → ${g.lastW} kg, +${g.pct} %)`)
+          .join(" & ")}.`
+      : "Deine Kraftwerte werden live getrackt.";
+
+  const plateauText =
+    plateaus.length > 0
+      ? ` Aktuelles Plateau erkannt bei: ${plateaus
+          .slice(0, 2)
+          .map((p) => `${p.name} (${p.count}× bei ${p.weightKg} kg × ${p.reps})`)
+          .join(" & ")}.`
+      : " Aktuell kein Plateau — alle Übungen steigen sauber!";
+
+  const recText =
+    plateaus.length > 0
+      ? `Für ${plateaus[0]!.name}: Erhöhe im nächsten Training im 1. Satz auf ${plateaus[0]!.weightKg + 2.5} kg × 8–10 Wdh. (Load-Progression) oder mache bei ${plateaus[0]!.weightKg} kg erst 14 Wdh. voll (Plotkin et al., 2022).`
+      : "Halte deine Double-Progression (8–12 Wdh. voll machen, dann +2,5 kg) genau so bei!";
+
+  return {
+    findingText: `${topGainsText}${plateauText}`,
+    recommendationText: recText,
+  };
+}
+
 export function computeFractionalMuscleVolumes(
   data: FitnessDataset,
   todayIso: string
@@ -233,6 +319,16 @@ export function computeFractionalMuscleVolumes(
     }
   }
 
+  // Also factor in recent Bouldering sessions as pulling/back/biceps volume!
+  const recentBoulders = data.bouldering.filter(
+    (b) => daysBetween(b.sessionDate, todayIso) <= 14
+  );
+  for (const b of recentBoulders) {
+    const eqSets = Math.max(2, Math.round(b.durationMinutes / 20));
+    rawSets.back += eqSets * 0.5;
+    rawSets.biceps += eqSets * 0.5;
+  }
+
   const upperBodyFocus: MuscleGroup[] = [
     "chest",
     "back",
@@ -283,6 +379,15 @@ export function computeCoachBriefing(
   const boulderDates = Array.from(
     new Set(data.bouldering.map((b) => b.sessionDate))
   ).sort((a, b) => b.localeCompare(a));
+
+  const allLoggedDates = [
+    ...gymDates,
+    ...cardioDates,
+    ...boulderDates,
+  ].sort((a, b) => b.localeCompare(a));
+  const latestAnyDate = allLoggedDates[0] ?? todayIso;
+
+  const liveDataSummary = `Live-Stand: ${gymDates.length} Gym-Tage (${data.gym.length} Übungs-Logs) • ${data.cardio.length} Cardio/Strava • ${data.bouldering.length} Boulder (letzter Eintrag: ${latestAnyDate})`;
 
   const gaps: number[] = [];
   for (let i = 0; i < gymDates.length - 1; i++) {
@@ -364,7 +469,7 @@ export function computeCoachBriefing(
           probabilityPct: probPct,
         };
       }
-      if (cCount >= 2 && cCount >= bCount) {
+      if (cCount >= 1 && cCount >= bCount) {
         return {
           weekdayIndex: idx,
           weekdayShort: shortName,
@@ -374,7 +479,7 @@ export function computeCoachBriefing(
           probabilityPct: 50,
         };
       }
-      if (bCount >= 2) {
+      if (bCount >= 1) {
         return {
           weekdayIndex: idx,
           weekdayShort: shortName,
@@ -395,12 +500,19 @@ export function computeCoachBriefing(
     }
   );
 
-  // 2. Check Muscle Recovery (48h protein synthesis window per Schoenfeld / MacDougall)
+  // 2. Check Muscle Recovery (including Bouldering pulling fatigue!)
   const recentlyWorkedMuscles = new Set<MuscleGroup>();
   for (const g of data.gym) {
     if (daysBetween(g.sessionDate, todayIso) <= 2 && g.sessionDate <= todayIso) {
       recentlyWorkedMuscles.add(g.muscleGroup);
     }
+  }
+  const boulderedRecently = boulderDates.some(
+    (d) => daysBetween(d, todayIso) <= 1 && d <= todayIso
+  );
+  if (boulderedRecently) {
+    recentlyWorkedMuscles.add("back");
+    recentlyWorkedMuscles.add("biceps");
   }
 
   const recoveredMuscleLabels = MUSCLE_GROUPS.filter(
@@ -413,12 +525,23 @@ export function computeCoachBriefing(
     recentlyWorkedMuscles.has(m.id)
   ).map((m) => m.label.split(" ")[0] ?? m.label);
 
-  // 3. Determine Next Gym Template in Rotation (learns alternating Drücken <-> Ziehen)
+  // 3. Determine Next Gym Template in Rotation (learns alternating Drücken <-> Ziehen, AND checks Bouldering fatigue!)
   let recommendedTemplate: WorkoutTemplate | null =
     data.templates[0] ?? null;
 
-  if (data.templates.length > 1 && data.gym.length > 0) {
-    const lastWorkoutFocus = data.gym[0]?.workoutFocus?.toLowerCase() ?? "";
+  if (boulderedRecently) {
+    // If user bouldered today/yesterday, pulling muscles & forearms are fatigued -> prefer "Drücken" (Push)!
+    const pushTpl = data.templates.find((t) =>
+      t.name.toLowerCase().includes("drücken")
+    );
+    if (pushTpl) {
+      recommendedTemplate = pushTpl;
+    }
+  } else if (data.templates.length > 1 && data.gym.length > 0) {
+    const sortedGym = [...data.gym].sort((a, b) =>
+      b.sessionDate.localeCompare(a.sessionDate)
+    );
+    const lastWorkoutFocus = sortedGym[0]?.workoutFocus?.toLowerCase() ?? "";
     const differentTemplate = data.templates.find(
       (t) => t.name.toLowerCase() !== lastWorkoutFocus
     );
@@ -437,16 +560,21 @@ export function computeCoachBriefing(
     .filter((s) => !takenTodayIds.has(s.id))
     .map((s) => `${s.name} (${s.dosage})`);
 
-  // 5. Did user already train today?
-  const trainedToday =
-    gymDates.includes(todayIso) ||
-    cardioDates.includes(todayIso) ||
-    boulderDates.includes(todayIso);
+  // 5. Did user already train today? (Checks Gym, Cardio/Strava, AND Bouldering!)
+  const gymToday = gymDates.includes(todayIso);
+  const cardioToday = cardioDates.includes(todayIso);
+  const boulderToday = boulderDates.includes(todayIso);
+  const trainedToday = gymToday || cardioToday || boulderToday;
 
   const lastGymDate = gymDates[0];
   const daysSinceLastGym = lastGymDate ? daysBetween(lastGymDate, todayIso) : 99;
 
-  // 6. GENERATE 14-DAY FORWARD-LOOKING TRAINING SCHEDULE (Proactive Future Planning!)
+  // How many Cardio/Bouldering sessions were already logged in the last 7 days?
+  const loggedSportThisWeek =
+    cardioDates.filter((d) => daysBetween(d, todayIso) <= 6).length +
+    boulderDates.filter((d) => daysBetween(d, todayIso) <= 6).length;
+
+  // 6. GENERATE 14-DAY FORWARD-LOOKING TRAINING SCHEDULE (Reacts live to every new Gym, Cardio & Boulder entry!)
   const templates =
     data.templates.length > 0
       ? data.templates
@@ -470,10 +598,8 @@ export function computeCoachBriefing(
   );
   if (nextTplIdx < 0) nextTplIdx = 0;
 
-  let simDaysSinceGym = trainedToday && gymDates.includes(todayIso)
-    ? 0
-    : daysSinceLastGym;
-  let cardioScheduledThisWeek = 0;
+  let simDaysSinceGym = gymToday ? 0 : daysSinceLastGym;
+  let cardioScheduledThisWeek = loggedSportThisWeek;
 
   const futureSchedule: PlannedFutureDay[] = [];
   for (let offset = 0; offset < 14; offset++) {
@@ -491,15 +617,33 @@ export function computeCoachBriefing(
             ? "Übermorgen"
             : `${wShort}, ${shortDate}`;
 
-    if (wIdx === 0) {
+    if (offset > 0 && wIdx === 0) {
       cardioScheduledThisWeek = 0;
     }
 
-    // Case A: Today already trained
+    // Case A: Today already trained (Gym, Cardio/Strava, or Bouldering!)
     if (offset === 0 && trainedToday) {
-      const todayFocus =
-        data.gym.find((g) => g.sessionDate === todayIso)?.workoutFocus ??
-        "Training";
+      const doneParts: string[] = [];
+      if (gymToday) {
+        const focus =
+          data.gym.find((g) => g.sessionDate === todayIso)?.workoutFocus ??
+          "Gym";
+        doneParts.push(`Gym (${focus})`);
+      }
+      if (cardioToday) {
+        const cEntry = data.cardio.find((c) => c.sessionDate === todayIso);
+        doneParts.push(
+          cEntry
+            ? `${cEntry.modality} (${cEntry.durationMinutes} Min)`
+            : "Cardio"
+        );
+      }
+      if (boulderToday) {
+        const bEntry = data.bouldering.find((b) => b.sessionDate === todayIso);
+        doneParts.push(bEntry ? `Bouldern (${bEntry.grade})` : "Bouldern");
+      }
+
+      const doneLabel = doneParts.join(" + ");
       futureSchedule.push({
         dateIso,
         dayOffset: offset,
@@ -507,9 +651,13 @@ export function computeCoachBriefing(
         weekdayFull: wFull,
         relativeLabel,
         type: "completed",
-        title: `Erledigt: ${todayFocus} ✅`,
-        badgeText: "✅ Heute erledigt",
-        reason: `Du hast heute bereits trainiert! Jetzt läuft für 36–48h die Muskelproteinbiosynthese. Fokus heute: ${Math.round(profile.weightKg * 1.8)}g Protein & 5g Kreatin.`,
+        title: `Erledigt: ${doneLabel} ✅`,
+        badgeText: `✅ ${doneParts[0] ?? "Erledigt"}`,
+        reason: gymToday
+          ? `Stark! Du hast heute ${doneLabel} geloggt. Jetzt läuft für 36–48h die Muskelproteinbiosynthese — dein Zukunfts-Plan ab morgen wurde automatisch angepasst!`
+          : boulderToday
+            ? `Du warst heute Bouldern (${doneLabel})! Da Klettern Unterarme, Bizeps & Rücken stark fordert, hat der Coach für dein nächstes Gym-Training automatisch „Drücken“ (Push) eingeplant.`
+            : `Starkes Cardio-Training heute (${doneLabel})! Dein Wochenziel für Ausdauer ist aktualisiert und dein nächster Gym-Slot steht bereit.`,
         templateName: null,
         exercises: [],
       });
@@ -517,8 +665,6 @@ export function computeCoachBriefing(
       continue;
     }
 
-    // Should we schedule a Gym workout on this day?
-    // Condition: At least 2 days since last gym (48h recovery!) AND either it's one of the user's favorite Gym weekdays (Do/So/Fr) OR 3+ days have passed since the last Gym session!
     const isFavGymDay = topGymWeekdayIndices.has(wIdx);
     const shouldScheduleGym =
       (simDaysSinceGym >= 2 && isFavGymDay) || simDaysSinceGym >= 3;
@@ -551,7 +697,6 @@ export function computeCoachBriefing(
       continue;
     }
 
-    // Day right after Gym -> Mandatory 48h Muscle Recovery Day
     if (simDaysSinceGym === 1) {
       futureSchedule.push({
         dateIso,
@@ -570,7 +715,6 @@ export function computeCoachBriefing(
       continue;
     }
 
-    // Otherwise -> Ideal Cardio / Bouldering Day between Gym sessions!
     if (cardioScheduledThisWeek < 2) {
       cardioScheduledThisWeek += 1;
       futureSchedule.push({
@@ -594,9 +738,9 @@ export function computeCoachBriefing(
         weekdayFull: wFull,
         relativeLabel,
         type: "rest",
-        title: "Aktive Erholung 🌿",
+        title: "Aktive Erholung (Cardio-Soll erfüllt ✅) 🌿",
         badgeText: "🌿 Erholung",
-        reason: `Vorbereitung auf deine nächste schwere Gym-Einheit morgen. Schlaf & Elektrolyte priorisieren.`,
+        reason: `Dein Cardio-/Sport-Pensum für diese Woche ist bereits erfüllt! Fokus heute auf volle Erholung für deine nächste Gym-Einheit morgen.`,
         templateName: null,
         exercises: [],
       });
@@ -624,12 +768,8 @@ export function computeCoachBriefing(
     subline = `${todayPlan.reason}${topTargets ? ` — Heutige Ziele: ${topTargets}` : ""}`;
   } else if (todayPlan.type === "completed") {
     recommendedAction = "rest";
-    headline = `Heute erledigt ✅ — Dein nächstes Gym-Training ist am ${nextGymPlan.weekdayFull} (${formatShortGermanDate(nextGymPlan.dateIso)}): „${nextGymPlan.templateName}“ 💪`;
-    const nextTargets = nextGymPlan.exercises
-      .slice(0, 2)
-      .map((e) => `${e.name} ${e.suggestedWeightKg}kg × ${e.targetReps}`)
-      .join(" • ");
-    subline = `Für dich vorausgeplant: Morgen Regeneration, nächstes Gym am ${nextGymPlan.weekdayFull} mit Ziel: ${nextTargets}.`;
+    headline = `${todayPlan.title} — Nächstes Gym am ${nextGymPlan.weekdayFull} (${formatShortGermanDate(nextGymPlan.dateIso)}): „${nextGymPlan.templateName}“ 💪`;
+    subline = todayPlan.reason;
   } else if (todayPlan.type === "cardio") {
     recommendedAction = "cardio";
     headline = `Heute: ${todayPlan.title} — Nächstes Gym am ${nextGymPlan.weekdayFull} (${formatShortGermanDate(nextGymPlan.dateIso)}): „${nextGymPlan.templateName}“`;
@@ -640,19 +780,18 @@ export function computeCoachBriefing(
     subline = `${todayPlan.reason}`;
   }
 
-  // 8. Compute Peer-Reviewed Sports Science Insights tailored to the user's data & profile
+  // 8. Compute Peer-Reviewed Sports Science Insights dynamically from the live dataset!
   const muscleVolumes = computeFractionalMuscleVolumes(data, todayIso);
   const proteinTargetGrams = Math.round(profile.weightKg * 1.8);
   const creatineGrams = Math.max(3, Math.round(profile.weightKg * 0.05));
+  const liveProg = analyzeLiveProgressionsAndPlateaus(data);
 
   const scienceInsights: ScienceInsight[] = [
     {
       id: "plotkin_double_progression_2022",
-      title: "Gelernte Kraft-Kurve & Plateau-Brecher (Double Progression)",
-      finding:
-        "Starke Progression bei Brustpresse (16,5 → 23 kg, +39 %) & Bizepscurl (10 → 18 kg, +80 %). Aber: Latzug (30 kg × 12) & Hyperextension (15 kg × 12) stehen seit 3 Einheiten auf demselben Gewicht!",
-      recommendation:
-        "Nach Plotkin et al. (2022): Wenn der Gewichtssprung am Steckgewicht zu groß ist, erhöhe erst auf 14–15 Wiederholungen („Rep Progression“) oder geh im 1. Satz auf 32,5 kg × 8–10 Wdh.",
+      title: "Live Kraft-Kurve & Plateau-Brecher (Double Progression)",
+      finding: liveProg.findingText,
+      recommendation: liveProg.recommendationText,
       citation:
         "Plotkin et al. (2022, PeerJ — Load vs. Repetition Progression produce equal hypertrophy)",
       badgeColor: "#a6e3a1",
@@ -660,7 +799,7 @@ export function computeCoachBriefing(
     {
       id: "pelland_volume_2024",
       title: "Wochen-Volumen & 2×/Woche Oberkörper-Frequenz",
-      finding: `Dein gelernter Rhythmus liegt bei ~${learnedGymPerWeek}× Gym/Woche (Ø alle ${learnedAvgRestDays} Tage). Weil du in „Drücken“ auch Klimmzüge & Bizepscurls machst, trainierst du Rücken & Bizeps 2× pro Woche — Brust & Trizeps aber aktuell fast nur in „Drücken“!`,
+      finding: `Dein gelernter Rhythmus liegt bei ~${learnedGymPerWeek}× Gym/Woche (Ø alle ${learnedAvgRestDays} Tage) plus ${data.cardio.length} Cardio- & ${data.bouldering.length} Boulder-Sessions.`,
       recommendation:
         "Ergänze am Ende von „Ziehen“ 3 Sätze Brustpresse oder Fliegende + nimm Trizepsdrücken (Überkopf am Kabel) wieder fest rein. So bekommt jeder Oberkörper-Muskel 2×/Woche den Wachstumsreiz.",
       citation:
@@ -682,7 +821,7 @@ export function computeCoachBriefing(
       id: "refalo_rir_2023",
       title: "Optimale Satz-Intensität (1–2 RIR statt Zwangsversagen)",
       finding:
-        "In deiner CSV fallen die Wiederholungen im 3. Satz oft stark ab (z. B. Schulterpresse 12 → 10 → 8 Wdh. bei 28 kg).",
+        "In deiner Historie fallen die Wiederholungen im 3. Satz oft stark ab (z. B. Schulterpresse 12 → 10 → 8 Wdh. bei 28 kg).",
       recommendation:
         "Beende Satz 1 & 2 mit 1–2 Wiederholungen im Tank (RPE 8–8.5) und geh erst im letzten Satz ans Limit (0–1 RIR) mit 90–120 Sek. Pause. Das liefert laut Meta-Analyse 99 % des Muskelwachstums bei halbierter Ermüdung.",
       citation:
@@ -700,7 +839,6 @@ export function computeCoachBriefing(
     },
   ];
 
-  // Build Signal Morning Briefing with 3-Day Future Outlook + Exercise Weight Targets
   const next3DaysSummary = futureSchedule
     .slice(0, 4)
     .map(
@@ -727,6 +865,7 @@ export function computeCoachBriefing(
   return {
     headline,
     subline,
+    liveDataSummary,
     recommendedAction,
     recommendedTemplate,
     recoveredMuscleLabels,

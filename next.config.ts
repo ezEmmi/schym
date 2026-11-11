@@ -35,7 +35,7 @@ const securityHeaders = [
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https://signal.callmebot.com https://api.callmebot.com",
       "font-src 'self' data:",
-      "connect-src 'self' https://signal.callmebot.com https://api.callmebot.com",
+      "connect-src 'self' https://signal.callmebot.com https://api.callmebot.com https://www.strava.com",
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self'",

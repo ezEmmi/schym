@@ -824,10 +824,16 @@ export function FitnessDashboard({
                 }}
               >
                 <RefreshCw size={15} color="var(--pastel-peach)" />
-                <span>Hevy &amp; Strava CSV-Import</span>
+                <span>Strava 2-Wege-Sync &amp; Hevy</span>
               </span>
-              <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
-                Sync
+              <span
+                style={{
+                  fontSize: "0.72rem",
+                  color: "var(--pastel-peach)",
+                  fontWeight: 700,
+                }}
+              >
+                Push &amp; Import
               </span>
             </button>
           </div>
@@ -1028,23 +1034,48 @@ export function FitnessDashboard({
                       </span>
                     </div>
 
-                    <span
+                    <div
                       style={{
-                        fontSize: "0.76rem",
-                        color: "var(--pastel-lavender)",
-                        fontWeight: 700,
-                        display: "inline-flex",
+                        display: "flex",
                         alignItems: "center",
-                        gap: 4,
+                        gap: "0.55rem",
                       }}
                     >
-                      {isDayOpen ? "Zuklappen" : "Übungen ansehen"}
-                      {isDayOpen ? (
-                        <ChevronUp size={14} />
-                      ) : (
-                        <ChevronDown size={14} />
-                      )}
-                    </span>
+                      <button
+                        type="button"
+                        className="pill-tab"
+                        style={{
+                          padding: "0.24rem 0.55rem",
+                          fontSize: "0.72rem",
+                          color: "var(--pastel-peach)",
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setIsStravaModalOpen(true);
+                        }}
+                        title="Dieses Workout zu Strava übertragen (.tcx oder Strava API)"
+                      >
+                        🧡 Zu Strava
+                      </button>
+
+                      <span
+                        style={{
+                          fontSize: "0.76rem",
+                          color: "var(--pastel-lavender)",
+                          fontWeight: 700,
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 4,
+                        }}
+                      >
+                        {isDayOpen ? "Zuklappen" : "Übungen ansehen"}
+                        {isDayOpen ? (
+                          <ChevronUp size={14} />
+                        ) : (
+                          <ChevronDown size={14} />
+                        )}
+                      </span>
+                    </div>
                   </div>
 
                   {isDayOpen && (
