@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Next.js
+.next/
+out/
+build/
+
+# Local SQLite database (contains personal fitness data)
+data/
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+
+# Testing & Coverage
+coverage/
+
+# Misc
+.DS_Store
+*.pem
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.tsbuildinfo
+next-env.d.ts
