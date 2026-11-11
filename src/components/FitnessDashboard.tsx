@@ -7,7 +7,6 @@ import {
   RefreshCw,
   Trash2,
   Sparkles,
-  Smartphone,
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
@@ -407,10 +406,9 @@ export function FitnessDashboard({
             type="button"
             className="pill-tab"
             onClick={() => setIsMobileSignalModalOpen(true)}
-            title="Handy-App (PWA) & Signal-Bot verbinden"
+            title="Signal Daily Reminder verbinden"
           >
-            <Smartphone size={15} style={{ display: "inline", marginRight: 5 }} />
-            Handy &amp; Signal 📲
+            Signal Bot 💬
           </button>
         </div>
       </header>

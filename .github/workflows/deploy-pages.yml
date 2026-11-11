@@ -33,13 +33,24 @@ jobs:
       - name: Prepare static export for GitHub Pages
         run: |
           rm -rf src/app/api
-          sed -i 's|import { getAllFitnessData } from "@/lib/db";||g' src/app/page.tsx
-          sed -i 's|isStatic ? buildPreseededDataset() : getAllFitnessData()|buildPreseededDataset()|g' src/app/page.tsx
+          cat << 'EOF' > src/app/page.tsx
+          import { buildPreseededDataset } from "@/lib/hevy-seed";
+          import { FitnessDashboard } from "@/components/FitnessDashboard";
+
+          export default function HomePage() {
+            const initialData = buildPreseededDataset();
+            const todayIso = new Date().toISOString().slice(0, 10);
+            return <FitnessDashboard initialData={initialData} todayIso={todayIso} />;
+          }
+          EOF
 
       - name: Build Next.js Static Export
         env:
           SCHYM_STATIC_EXPORT: "true"
         run: npm run build
+
+      - name: Add .nojekyll for GitHub Pages
+        run: touch ./out/.nojekyll
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
