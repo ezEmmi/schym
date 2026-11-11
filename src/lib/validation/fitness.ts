@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SPORT_IDS } from "../sports-catalog";
 
 const isoDateRegex = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -28,23 +29,17 @@ export const gymEntryInputSchema = z
   })
   .strict();
 
-export const cardioModalities = [
-  "Run",
-  "Cycle",
-  "Row",
-  "Swim",
-  "HIIT",
-  "Hike",
-] as const;
+export const cardioModalities = SPORT_IDS;
 
 export const cardioSessionInputSchema = z
   .object({
     sessionDate: dateStringSchema,
-    modality: z.enum(cardioModalities),
-    durationMinutes: z.coerce.number().int().min(1).max(720),
-    distanceKm: z.coerce.number().min(0).max(500),
+    modality: z.enum(SPORT_IDS),
+    durationMinutes: z.coerce.number().int().min(1).max(1440),
+    distanceKm: z.coerce.number().min(0).max(1000),
     avgHeartRate: z.preprocess(
-      (val) => (val === "" || val === null || val === undefined ? null : Number(val)),
+      (val) =>
+        val === "" || val === null || val === undefined ? null : Number(val),
       z.number().int().min(35).max(230).nullable()
     ),
     rpe: z.coerce.number().int().min(1).max(10),
@@ -116,7 +111,46 @@ export const deleteEntryInputSchema = z
   })
   .strict();
 
+/**
+ * Strava Activity Schema (validates incoming Strava API v3 `/athlete/activities` items or JSON exports)
+ */
+export const stravaActivityItemSchema = z.object({
+  id: z.number().optional(),
+  name: z.string().trim().max(160).default("Strava Activity"),
+  type: z.string().trim().max(60).optional(),
+  sport_type: z.string().trim().max(60).optional(),
+  start_date_local: z.string().min(10),
+  moving_time: z.number().min(0).max(864000), // seconds
+  distance: z.number().min(0).max(10000000).optional().default(0), // meters
+  average_heartrate: z.number().min(30).max(240).nullable().optional(),
+  total_elevation_gain: z.number().min(0).optional(),
+  suffer_score: z.number().min(0).nullable().optional(),
+});
+
+export const stravaSyncRequestSchema = z.discriminatedUnion("mode", [
+  z
+    .object({
+      mode: z.literal("token"),
+      accessToken: z
+        .string()
+        .trim()
+        .min(10, "Valid Strava OAuth Access Token required")
+        .max(512),
+      perPage: z.coerce.number().int().min(1).max(100).optional().default(30),
+    })
+    .strict(),
+  z
+    .object({
+      mode: z.literal("json"),
+      activities: z.array(stravaActivityItemSchema).min(1).max(200),
+    })
+    .strict(),
+]);
+
 export type GymEntryInput = z.infer<typeof gymEntryInputSchema>;
 export type CardioSessionInput = z.infer<typeof cardioSessionInputSchema>;
-export type BoulderingSessionInput = z.infer<typeof boulderingSessionInputSchema>;
+export type BoulderingSessionInput = z.infer<
+  typeof boulderingSessionInputSchema
+>;
 export type DeleteEntryInput = z.infer<typeof deleteEntryInputSchema>;
+export type StravaActivityItem = z.infer<typeof stravaActivityItemSchema>;

@@ -6,27 +6,30 @@ import {
   HeartPulse,
   Mountain,
   ShieldCheck,
+  RefreshCw,
 } from "lucide-react";
 import type { FitnessDataset } from "@/lib/db/schema";
 import { computeWeeklySummary } from "@/lib/metrics";
+import { SPORTS_CATALOG } from "@/lib/sports-catalog";
 import { WeeklySplitCards } from "@/components/dashboard/WeeklySplitCards";
 import { GymModule } from "@/components/loggers/GymModule";
 import { CardioModule } from "@/components/loggers/CardioModule";
 import { BoulderingModule } from "@/components/loggers/BoulderingModule";
+import { StravaSyncModule } from "@/components/loggers/StravaSyncModule";
 
 interface FitnessDashboardProps {
   initialData: FitnessDataset;
   todayIso: string;
 }
 
-type ActiveTab = "gym" | "cardio" | "bouldering";
+type ActiveTab = "gym" | "cardio" | "bouldering" | "strava";
 
 export function FitnessDashboard({
   initialData,
   todayIso,
 }: FitnessDashboardProps) {
   const [data, setData] = useState<FitnessDataset>(initialData);
-  const [activeTab, setActiveTab] = useState<ActiveTab>("gym");
+  const [activeTab, setActiveTab] = useState<ActiveTab>("cardio");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -37,7 +40,10 @@ export function FitnessDashboard({
     data.bouldering
   );
 
-  async function submitEntry(type: ActiveTab, payload: Record<string, unknown>) {
+  async function submitEntry(
+    type: "gym" | "cardio" | "bouldering",
+    payload: Record<string, unknown>
+  ) {
     setErrorMsg(null);
     setIsSubmitting(true);
     try {
@@ -71,7 +77,10 @@ export function FitnessDashboard({
     }
   }
 
-  async function handleDelete(category: ActiveTab, id: number) {
+  async function handleDelete(
+    category: "gym" | "cardio" | "bouldering",
+    id: number
+  ) {
     setErrorMsg(null);
     try {
       const res = await fetch("/api/fitness", {
@@ -102,13 +111,16 @@ export function FitnessDashboard({
           <div>
             <h1 className="brand-title">SCHYM</h1>
             <p className="brand-subtitle">
-              2x/wk Gym • 2x+/wk Cardio • Bouldering &amp; Sends
+              2x/wk Gym • {SPORTS_CATALOG.length}+ Sports &amp; Conditioning •
+              Bouldering • Strava Sync
             </p>
           </div>
         </div>
         <div className="security-pill">
           <ShieldCheck size={16} />
-          <span>Local SQLite (WAL) • Strict Zod Guard • Zero Cloud Telemetry</span>
+          <span>
+            Local SQLite (WAL) • Strict Zod Guard • Zero Cloud Telemetry
+          </span>
         </div>
       </header>
 
@@ -120,6 +132,17 @@ export function FitnessDashboard({
       <nav className="tabs-bar" aria-label="Fitness Modules">
         <button
           type="button"
+          className={`tab-btn ${activeTab === "cardio" ? "active" : ""}`}
+          onClick={() => setActiveTab("cardio")}
+        >
+          <HeartPulse size={17} color="var(--accent-cardio)" />
+          <span>
+            Multi-Sport &amp; Cardio ({data.cardio.length} logged •{" "}
+            {SPORTS_CATALOG.length} sports)
+          </span>
+        </button>
+        <button
+          type="button"
           className={`tab-btn ${activeTab === "gym" ? "active" : ""}`}
           onClick={() => setActiveTab("gym")}
         >
@@ -128,19 +151,19 @@ export function FitnessDashboard({
         </button>
         <button
           type="button"
-          className={`tab-btn ${activeTab === "cardio" ? "active" : ""}`}
-          onClick={() => setActiveTab("cardio")}
-        >
-          <HeartPulse size={17} color="var(--accent-cardio)" />
-          <span>Cardio Tracker ({data.cardio.length})</span>
-        </button>
-        <button
-          type="button"
           className={`tab-btn ${activeTab === "bouldering" ? "active" : ""}`}
           onClick={() => setActiveTab("bouldering")}
         >
           <Mountain size={17} color="var(--accent-boulder)" />
-          <span>Bouldering &amp; Sends ({data.bouldering.length})</span>
+          <span>Bouldering &amp; Climbing ({data.bouldering.length})</span>
+        </button>
+        <button
+          type="button"
+          className={`tab-btn ${activeTab === "strava" ? "active" : ""}`}
+          onClick={() => setActiveTab("strava")}
+        >
+          <RefreshCw size={17} color="#fc4c02" />
+          <span>Strava Sync</span>
         </button>
       </nav>
 
@@ -177,6 +200,17 @@ export function FitnessDashboard({
           isSubmitting={isSubmitting}
           onSubmit={(payload) => submitEntry("bouldering", payload)}
           onDelete={(id) => handleDelete("bouldering", id)}
+        />
+      )}
+
+      {activeTab === "strava" && (
+        <StravaSyncModule
+          todayIso={todayIso}
+          onSynced={(newData) => {
+            setErrorMsg(null);
+            setData(newData);
+          }}
+          onError={(msg) => setErrorMsg(msg)}
         />
       )}
     </div>

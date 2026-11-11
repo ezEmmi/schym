@@ -4,6 +4,7 @@ import {
   cardioSessionInputSchema,
   boulderingSessionInputSchema,
   deleteEntryInputSchema,
+  stravaSyncRequestSchema,
 } from "../validation/fitness";
 import {
   calculateEstimated1Rm,
@@ -11,6 +12,10 @@ import {
   getIsoWeekMonday,
   computeWeeklySummary,
 } from "../metrics";
+import {
+  SPORTS_CATALOG,
+  mapStravaSportToSchym,
+} from "../sports-catalog";
 
 describe("Fitness Input Validation & Security Guards", () => {
   it("validates a well-formed gym entry and rejects prototype/unknown keys (.strict)", () => {
@@ -52,19 +57,54 @@ describe("Fitness Input Validation & Security Guards", () => {
     expect(invalidWeight.success).toBe(false);
   });
 
-  it("validates cardio sessions and handles optional heart rate", () => {
-    const validCardio = cardioSessionInputSchema.safeParse({
+  it("validates multi-sport sessions across 20+ sports (Run, Padel, Boxing, Ski, etc.)", () => {
+    expect(SPORTS_CATALOG.length).toBeGreaterThanOrEqual(20);
+
+    const validPadel = cardioSessionInputSchema.safeParse({
       sessionDate: "2026-11-11",
-      modality: "Run",
-      durationMinutes: 42,
-      distanceKm: 8.4,
-      avgHeartRate: "",
-      rpe: 7,
+      modality: "Padel",
+      durationMinutes: 90,
+      distanceKm: 3.4,
+      avgHeartRate: 145,
+      rpe: 8,
+      notes: "Won 6-4, 6-3",
     });
-    expect(validCardio.success).toBe(true);
-    if (validCardio.success) {
-      expect(validCardio.data.avgHeartRate).toBeNull();
+    expect(validPadel.success).toBe(true);
+
+    const validBoxing = cardioSessionInputSchema.safeParse({
+      sessionDate: "2026-11-11",
+      modality: "Boxing",
+      durationMinutes: 60,
+      distanceKm: 0,
+      avgHeartRate: "",
+      rpe: 9,
+    });
+    expect(validBoxing.success).toBe(true);
+    if (validBoxing.success) {
+      expect(validBoxing.data.avgHeartRate).toBeNull();
     }
+  });
+
+  it("validates Strava sync requests & maps Strava sport_types accurately", () => {
+    expect(mapStravaSportToSchym("GravelRide")).toBe("GravelMtb");
+    expect(mapStravaSportToSchym("Soccer")).toBe("Football");
+    expect(mapStravaSportToSchym("AlpineSki")).toBe("SkiSnowboard");
+    expect(mapStravaSportToSchym("Padel")).toBe("Padel");
+
+    const validStravaJson = stravaSyncRequestSchema.safeParse({
+      mode: "json",
+      activities: [
+        {
+          name: "Evening Gravel Ride",
+          sport_type: "GravelRide",
+          start_date_local: "2026-11-11T17:00:00Z",
+          moving_time: 3600,
+          distance: 25000,
+          average_heartrate: 155,
+        },
+      ],
+    });
+    expect(validStravaJson.success).toBe(true);
   });
 
   it("validates bouldering session grades and styles strictly", () => {
