@@ -4,12 +4,14 @@ import {
   insertGymEntry,
   insertCardioSession,
   insertBoulderingSession,
+  insertWorkoutTemplate,
   deleteFitnessEntry,
 } from "@/lib/db";
 import {
   gymEntryInputSchema,
   cardioSessionInputSchema,
   boulderingSessionInputSchema,
+  workoutTemplateInputSchema,
   deleteEntryInputSchema,
 } from "@/lib/validation/fitness";
 import { calculateEstimated1Rm } from "@/lib/metrics";
@@ -27,6 +29,10 @@ const createPayloadSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("bouldering"),
     payload: boulderingSessionInputSchema,
+  }),
+  z.object({
+    type: z.literal("template"),
+    payload: workoutTemplateInputSchema,
   }),
 ]);
 
@@ -70,6 +76,7 @@ export async function POST(request: NextRequest) {
         sessionDate: payload.sessionDate,
         workoutFocus: payload.workoutFocus,
         exerciseName: payload.exerciseName,
+        muscleGroup: payload.muscleGroup,
         sets: payload.sets,
         reps: payload.reps,
         weightKg: payload.weightKg,
@@ -99,6 +106,11 @@ export async function POST(request: NextRequest) {
         durationMinutes: payload.durationMinutes,
         skinAndFingerFeel: payload.skinAndFingerFeel,
         notes: payload.notes,
+      });
+    } else if (type === "template") {
+      insertWorkoutTemplate({
+        name: payload.name,
+        exercises: payload.exercises,
       });
     }
 

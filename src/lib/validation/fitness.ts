@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { SPORT_IDS } from "../sports-catalog";
+import { MUSCLE_GROUP_IDS } from "../muscles";
 
 const isoDateRegex = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -21,11 +22,29 @@ export const gymEntryInputSchema = z
       .trim()
       .min(2, "Exercise name is required")
       .max(80, "Exercise name must be <= 80 chars"),
+    muscleGroup: z.enum(MUSCLE_GROUP_IDS).optional(),
     sets: z.coerce.number().int().min(1).max(30),
     reps: z.coerce.number().int().min(1).max(100),
     weightKg: z.coerce.number().min(0).max(600),
     rpe: z.coerce.number().min(1).max(10),
     notes: z.string().trim().max(280).optional().default(""),
+  })
+  .strict();
+
+export const workoutTemplateExerciseSchema = z
+  .object({
+    name: z.string().trim().min(2).max(80),
+    muscleGroup: z.enum(MUSCLE_GROUP_IDS),
+    targetSets: z.coerce.number().int().min(1).max(20),
+    targetReps: z.coerce.number().int().min(1).max(100),
+    defaultWeightKg: z.coerce.number().min(0).max(600),
+  })
+  .strict();
+
+export const workoutTemplateInputSchema = z
+  .object({
+    name: z.string().trim().min(2).max(60),
+    exercises: z.array(workoutTemplateExerciseSchema).min(1).max(30),
   })
   .strict();
 
@@ -106,13 +125,13 @@ export const boulderingSessionInputSchema = z
 
 export const deleteEntryInputSchema = z
   .object({
-    category: z.enum(["gym", "cardio", "bouldering"]),
+    category: z.enum(["gym", "cardio", "bouldering", "template"]),
     id: z.coerce.number().int().positive(),
   })
   .strict();
 
 /**
- * Strava Activity Schema (validates incoming Strava API v3 `/athlete/activities` items or JSON exports)
+ * Strava Activity Schema (validates incoming Strava API v3 `/athlete/activities` items or Hevy/Strava JSON exports)
  */
 export const stravaActivityItemSchema = z.object({
   id: z.number().optional(),
@@ -120,11 +139,12 @@ export const stravaActivityItemSchema = z.object({
   type: z.string().trim().max(60).optional(),
   sport_type: z.string().trim().max(60).optional(),
   start_date_local: z.string().min(10),
-  moving_time: z.number().min(0).max(864000), // seconds
-  distance: z.number().min(0).max(10000000).optional().default(0), // meters
+  moving_time: z.number().min(0).max(864000),
+  distance: z.number().min(0).max(10000000).optional().default(0),
   average_heartrate: z.number().min(30).max(240).nullable().optional(),
   total_elevation_gain: z.number().min(0).optional(),
   suffer_score: z.number().min(0).nullable().optional(),
+  description: z.string().max(4000).nullable().optional(),
 });
 
 export const stravaSyncRequestSchema = z.discriminatedUnion("mode", [
@@ -148,6 +168,7 @@ export const stravaSyncRequestSchema = z.discriminatedUnion("mode", [
 ]);
 
 export type GymEntryInput = z.infer<typeof gymEntryInputSchema>;
+export type WorkoutTemplateInput = z.infer<typeof workoutTemplateInputSchema>;
 export type CardioSessionInput = z.infer<typeof cardioSessionInputSchema>;
 export type BoulderingSessionInput = z.infer<
   typeof boulderingSessionInputSchema

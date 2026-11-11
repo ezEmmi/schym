@@ -8,9 +8,13 @@ import type {
   NewCardioSession,
   BoulderingSession,
   NewBoulderingSession,
+  WorkoutTemplate,
+  NewWorkoutTemplate,
+  WorkoutTemplateExercise,
+  MuscleGroup,
   FitnessDataset,
 } from "./schema";
-import { calculateEstimated1Rm } from "../metrics";
+import { inferMuscleGroupFromExercise } from "../muscles";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const DB_PATH = path.join(DATA_DIR, "schym.db");
@@ -30,6 +34,7 @@ function initializeSqlite(): DatabaseSync {
       session_date TEXT NOT NULL,
       workout_focus TEXT NOT NULL,
       exercise_name TEXT NOT NULL,
+      muscle_group TEXT NOT NULL DEFAULT 'chest',
       sets INTEGER NOT NULL,
       reps INTEGER NOT NULL,
       weight_kg REAL NOT NULL,
@@ -65,96 +70,22 @@ function initializeSqlite(): DatabaseSync {
       notes TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS workout_templates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      exercises_json TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
   `);
 
-  const gymCount = sqlite
-    .prepare("SELECT COUNT(*) as cnt FROM gym_entries")
-    .get() as { cnt: number };
-  const cardioCount = sqlite
-    .prepare("SELECT COUNT(*) as cnt FROM cardio_sessions")
-    .get() as { cnt: number };
-  const boulderCount = sqlite
-    .prepare("SELECT COUNT(*) as cnt FROM bouldering_sessions")
-    .get() as { cnt: number };
-
-  if (gymCount.cnt === 0 && cardioCount.cnt === 0 && boulderCount.cnt === 0) {
-    const today = new Date().toISOString().slice(0, 10);
-    const nowIso = new Date().toISOString();
-
-    const insertGym = sqlite.prepare(`
-      INSERT INTO gym_entries (session_date, workout_focus, exercise_name, sets, reps, weight_kg, rpe, estimated_1rm, notes, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    insertGym.run(
-      today,
-      "Full Body Strength A",
-      "Barbell Back Squat",
-      4,
-      6,
-      100,
-      8,
-      calculateEstimated1Rm(100, 6),
-      "Smooth depth, solid bracing",
-      nowIso
+  // Safe migration if gym_entries was created before muscle_group column existed
+  try {
+    sqlite.exec(
+      "ALTER TABLE gym_entries ADD COLUMN muscle_group TEXT NOT NULL DEFAULT 'chest';"
     );
-    insertGym.run(
-      today,
-      "Full Body Strength A",
-      "Weighted Pull-Ups",
-      4,
-      6,
-      15,
-      8.5,
-      calculateEstimated1Rm(15, 6),
-      "Dead hang on every rep",
-      nowIso
-    );
-
-    const insertCardio = sqlite.prepare(`
-      INSERT INTO cardio_sessions (session_date, modality, duration_minutes, distance_km, avg_heart_rate, rpe, notes, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    insertCardio.run(
-      today,
-      "Run",
-      38,
-      7.5,
-      152,
-      7,
-      "Zone 2/3 aerobic tempo run",
-      nowIso
-    );
-
-    const insertBoulder = sqlite.prepare(`
-      INSERT INTO bouldering_sessions (session_date, location, grade, style, wall_angle, attempts, topped, duration_minutes, skin_and_finger_feel, notes, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    insertBoulder.run(
-      today,
-      "Boulderhalle Main",
-      "6B+",
-      "Flash",
-      "Overhang",
-      1,
-      1,
-      90,
-      8,
-      "Crux heel-hook locked in first try",
-      nowIso
-    );
-    insertBoulder.run(
-      today,
-      "Boulderhalle Main",
-      "6C+",
-      "Project",
-      "Roof",
-      5,
-      1,
-      90,
-      8,
-      "Sent on 5th go after beta adjustment!",
-      nowIso
-    );
+  } catch {
+    // Column already exists
   }
 
   return sqlite;
@@ -172,7 +103,7 @@ if (process.env.NODE_ENV !== "production") {
 export function getAllFitnessData(): FitnessDataset {
   const gymRows = sqlite
     .prepare(
-      `SELECT id, session_date, workout_focus, exercise_name, sets, reps, weight_kg, rpe, estimated_1rm, notes, created_at
+      `SELECT id, session_date, workout_focus, exercise_name, muscle_group, sets, reps, weight_kg, rpe, estimated_1rm, notes, created_at
        FROM gym_entries
        ORDER BY session_date DESC, id DESC`
     )
@@ -194,19 +125,34 @@ export function getAllFitnessData(): FitnessDataset {
     )
     .all() as Array<Record<string, unknown>>;
 
-  const gym: GymEntry[] = gymRows.map((r) => ({
-    id: Number(r.id),
-    sessionDate: String(r.session_date),
-    workoutFocus: String(r.workout_focus),
-    exerciseName: String(r.exercise_name),
-    sets: Number(r.sets),
-    reps: Number(r.reps),
-    weightKg: Number(r.weight_kg),
-    rpe: Number(r.rpe),
-    estimated1Rm: Number(r.estimated_1rm),
-    notes: String(r.notes ?? ""),
-    createdAt: String(r.created_at),
-  }));
+  const templateRows = sqlite
+    .prepare(
+      `SELECT id, name, exercises_json, created_at
+       FROM workout_templates
+       ORDER BY id DESC`
+    )
+    .all() as Array<Record<string, unknown>>;
+
+  const gym: GymEntry[] = gymRows.map((r) => {
+    const exName = String(r.exercise_name);
+    const rawMuscle = r.muscle_group
+      ? (String(r.muscle_group) as MuscleGroup)
+      : inferMuscleGroupFromExercise(exName);
+    return {
+      id: Number(r.id),
+      sessionDate: String(r.session_date),
+      workoutFocus: String(r.workout_focus),
+      exerciseName: exName,
+      muscleGroup: rawMuscle,
+      sets: Number(r.sets),
+      reps: Number(r.reps),
+      weightKg: Number(r.weight_kg),
+      rpe: Number(r.rpe),
+      estimated1Rm: Number(r.estimated_1rm),
+      notes: String(r.notes ?? ""),
+      createdAt: String(r.created_at),
+    };
+  });
 
   const cardio: CardioSession[] = cardioRows.map((r) => ({
     id: Number(r.id),
@@ -238,20 +184,38 @@ export function getAllFitnessData(): FitnessDataset {
     createdAt: String(r.created_at),
   }));
 
-  return { gym, cardio, bouldering };
+  const templates: WorkoutTemplate[] = templateRows.map((r) => {
+    let parsedEx: WorkoutTemplateExercise[] = [];
+    try {
+      parsedEx = JSON.parse(String(r.exercises_json)) as WorkoutTemplateExercise[];
+    } catch {
+      parsedEx = [];
+    }
+    return {
+      id: Number(r.id),
+      name: String(r.name),
+      exercises: parsedEx,
+      createdAt: String(r.created_at),
+    };
+  });
+
+  return { gym, cardio, bouldering, templates };
 }
 
 export function insertGymEntry(entry: NewGymEntry): void {
   const nowIso = new Date().toISOString();
+  const muscle =
+    entry.muscleGroup ?? inferMuscleGroupFromExercise(entry.exerciseName);
   sqlite
     .prepare(
-      `INSERT INTO gym_entries (session_date, workout_focus, exercise_name, sets, reps, weight_kg, rpe, estimated_1rm, notes, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO gym_entries (session_date, workout_focus, exercise_name, muscle_group, sets, reps, weight_kg, rpe, estimated_1rm, notes, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       entry.sessionDate,
       entry.workoutFocus,
       entry.exerciseName,
+      muscle,
       entry.sets,
       entry.reps,
       entry.weightKg,
@@ -303,8 +267,18 @@ export function insertBoulderingSession(entry: NewBoulderingSession): void {
     );
 }
 
+export function insertWorkoutTemplate(template: NewWorkoutTemplate): void {
+  const nowIso = new Date().toISOString();
+  sqlite
+    .prepare(
+      `INSERT INTO workout_templates (name, exercises_json, created_at)
+       VALUES (?, ?, ?)`
+    )
+    .run(template.name, JSON.stringify(template.exercises), nowIso);
+}
+
 export function deleteFitnessEntry(
-  category: "gym" | "cardio" | "bouldering",
+  category: "gym" | "cardio" | "bouldering" | "template",
   id: number
 ): void {
   if (category === "gym") {
@@ -313,5 +287,7 @@ export function deleteFitnessEntry(
     sqlite.prepare("DELETE FROM cardio_sessions WHERE id = ?").run(id);
   } else if (category === "bouldering") {
     sqlite.prepare("DELETE FROM bouldering_sessions WHERE id = ?").run(id);
+  } else if (category === "template") {
+    sqlite.prepare("DELETE FROM workout_templates WHERE id = ?").run(id);
   }
 }

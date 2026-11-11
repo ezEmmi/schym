@@ -2,11 +2,44 @@
  * Domain types & SQLite table definitions for Schym
  */
 
+export type MuscleGroup =
+  | "chest"
+  | "back"
+  | "shoulders"
+  | "biceps"
+  | "triceps"
+  | "core"
+  | "quads"
+  | "hamstrings"
+  | "glutes"
+  | "calves";
+
+export interface WorkoutTemplateExercise {
+  name: string;
+  muscleGroup: MuscleGroup;
+  targetSets: number;
+  targetReps: number;
+  defaultWeightKg: number;
+}
+
+export interface WorkoutTemplate {
+  id: number;
+  name: string; // e.g., "Gym Tag A", "Push (Hevy Import)"
+  exercises: WorkoutTemplateExercise[];
+  createdAt: string;
+}
+
+export interface NewWorkoutTemplate {
+  name: string;
+  exercises: WorkoutTemplateExercise[];
+}
+
 export interface GymEntry {
   id: number;
   sessionDate: string; // YYYY-MM-DD
-  workoutFocus: string; // e.g., "Full Body Strength A", "Upper Body"
+  workoutFocus: string; // e.g., "Gym Tag A"
   exerciseName: string;
+  muscleGroup: MuscleGroup;
   sets: number;
   reps: number;
   weightKg: number;
@@ -16,12 +49,14 @@ export interface GymEntry {
   createdAt: string;
 }
 
-export type NewGymEntry = Omit<GymEntry, "id" | "createdAt">;
+export type NewGymEntry = Omit<GymEntry, "id" | "createdAt" | "muscleGroup"> & {
+  muscleGroup?: MuscleGroup;
+};
 
 export interface CardioSession {
   id: number;
   sessionDate: string; // YYYY-MM-DD
-  modality: string; // "Run" | "Cycle" | "Row" | "Swim" | "HIIT" | "Hike"
+  modality: string;
   durationMinutes: number;
   distanceKm: number;
   avgHeartRate: number | null;
@@ -36,13 +71,13 @@ export interface BoulderingSession {
   id: number;
   sessionDate: string; // YYYY-MM-DD
   location: string;
-  grade: string; // e.g., "6B+", "7A", "V5-V6"
-  style: string; // "Flash" | "Redpoint" | "Onsight" | "Project"
-  wallAngle: string; // "Slab" | "Vertical" | "Overhang" | "Roof"
+  grade: string;
+  style: string;
+  wallAngle: string;
   attempts: number;
   topped: boolean;
   durationMinutes: number;
-  skinAndFingerFeel: number; // 1 - 10 recovery score
+  skinAndFingerFeel: number;
   notes: string;
   createdAt: string;
 }
@@ -53,4 +88,5 @@ export interface FitnessDataset {
   gym: GymEntry[];
   cardio: CardioSession[];
   bouldering: BoulderingSession[];
+  templates: WorkoutTemplate[];
 }

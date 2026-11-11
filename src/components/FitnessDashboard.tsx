@@ -3,18 +3,20 @@
 import React, { useState } from "react";
 import {
   Dumbbell,
-  HeartPulse,
-  Mountain,
-  ShieldCheck,
+  Plus,
   RefreshCw,
+  Trash2,
+  Sparkles,
 } from "lucide-react";
 import type { FitnessDataset } from "@/lib/db/schema";
-import { computeWeeklySummary } from "@/lib/metrics";
-import { SPORTS_CATALOG } from "@/lib/sports-catalog";
+import { computeWeeklySummary, formatPaceMinPerKm } from "@/lib/metrics";
+import { getSportDefinition } from "@/lib/sports-catalog";
+import { SchymLogo } from "@/components/dashboard/SchymLogo";
 import { WeeklySplitCards } from "@/components/dashboard/WeeklySplitCards";
-import { GymModule } from "@/components/loggers/GymModule";
-import { CardioModule } from "@/components/loggers/CardioModule";
-import { BoulderingModule } from "@/components/loggers/BoulderingModule";
+import { ActivityCalendar } from "@/components/dashboard/ActivityCalendar";
+import { BodyMuscleMap } from "@/components/dashboard/BodyMuscleMap";
+import { GymSessionModal } from "@/components/loggers/GymSessionModal";
+import { QuickActivityModal } from "@/components/loggers/QuickActivityModal";
 import { StravaSyncModule } from "@/components/loggers/StravaSyncModule";
 
 interface FitnessDashboardProps {
@@ -22,16 +24,18 @@ interface FitnessDashboardProps {
   todayIso: string;
 }
 
-type ActiveTab = "gym" | "cardio" | "bouldering" | "strava";
-
 export function FitnessDashboard({
   initialData,
   todayIso,
 }: FitnessDashboardProps) {
   const [data, setData] = useState<FitnessDataset>(initialData);
-  const [activeTab, setActiveTab] = useState<ActiveTab>("cardio");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Popups / Modals: Only show when the user explicitly clicks!
+  const [isGymModalOpen, setIsGymModalOpen] = useState(false);
+  const [isQuickSportModalOpen, setIsQuickSportModalOpen] = useState(false);
+  const [isStravaModalOpen, setIsStravaModalOpen] = useState(false);
 
   const summary = computeWeeklySummary(
     todayIso,
@@ -41,7 +45,7 @@ export function FitnessDashboard({
   );
 
   async function submitEntry(
-    type: "gym" | "cardio" | "bouldering",
+    type: "gym" | "cardio" | "bouldering" | "template",
     payload: Record<string, unknown>
   ) {
     setErrorMsg(null);
@@ -62,7 +66,7 @@ export function FitnessDashboard({
       if (!res.ok || !json.ok || !json.data) {
         const detail = json.issues
           ? json.issues.map((i) => `${i.path}: ${i.message}`).join(", ")
-          : json.error ?? "Failed to save entry";
+          : json.error ?? "Fehler beim Speichern";
         setErrorMsg(detail);
         return false;
       }
@@ -70,7 +74,7 @@ export function FitnessDashboard({
       setData(json.data);
       return true;
     } catch {
-      setErrorMsg("Network error while saving entry.");
+      setErrorMsg("Netzwerkfehler beim Speichern.");
       return false;
     } finally {
       setIsSubmitting(false);
@@ -78,7 +82,7 @@ export function FitnessDashboard({
   }
 
   async function handleDelete(
-    category: "gym" | "cardio" | "bouldering",
+    category: "gym" | "cardio" | "bouldering" | "template",
     id: number
   ) {
     setErrorMsg(null);
@@ -96,116 +100,263 @@ export function FitnessDashboard({
       if (res.ok && json.ok && json.data) {
         setData(json.data);
       } else {
-        setErrorMsg(json.error ?? "Could not delete entry.");
+        setErrorMsg(json.error ?? "Konnte Eintrag nicht löschen.");
       }
     } catch {
-      setErrorMsg("Network error while deleting entry.");
+      setErrorMsg("Netzwerkfehler beim Löschen.");
     }
   }
 
   return (
     <div className="app-shell">
+      {/* Top Bar: Hip Logo + 3 Clean Action Buttons */}
       <header className="top-header">
-        <div className="brand-group">
-          <div className="brand-badge">S</div>
-          <div>
-            <h1 className="brand-title">SCHYM</h1>
-            <p className="brand-subtitle">
-              2x/wk Gym • {SPORTS_CATALOG.length}+ Sports &amp; Conditioning •
-              Bouldering • Strava Sync
-            </p>
-          </div>
-        </div>
-        <div className="security-pill">
-          <ShieldCheck size={16} />
-          <span>
-            Local SQLite (WAL) • Strict Zod Guard • Zero Cloud Telemetry
-          </span>
+        <SchymLogo />
+
+        <div className="action-bar">
+          <button
+            type="button"
+            className="pastel-btn btn-lavender"
+            onClick={() => setIsGymModalOpen(true)}
+          >
+            <Dumbbell size={17} />
+            <span>Ich bin im Gym 💪</span>
+          </button>
+
+          <button
+            type="button"
+            className="pastel-btn btn-mint"
+            onClick={() => setIsQuickSportModalOpen(true)}
+          >
+            <Plus size={17} />
+            <span>Sport / Bouldern +</span>
+          </button>
+
+          <button
+            type="button"
+            className="pastel-btn btn-peach"
+            onClick={() => setIsStravaModalOpen(true)}
+          >
+            <RefreshCw size={16} />
+            <span>Strava &amp; Hevy Sync</span>
+          </button>
         </div>
       </header>
 
-      <WeeklySplitCards
-        summary={summary}
-        totalBoulderingProblems={data.bouldering.length}
-      />
-
-      <nav className="tabs-bar" aria-label="Fitness Modules">
-        <button
-          type="button"
-          className={`tab-btn ${activeTab === "cardio" ? "active" : ""}`}
-          onClick={() => setActiveTab("cardio")}
-        >
-          <HeartPulse size={17} color="var(--accent-cardio)" />
-          <span>
-            Multi-Sport &amp; Cardio ({data.cardio.length} logged •{" "}
-            {SPORTS_CATALOG.length} sports)
-          </span>
-        </button>
-        <button
-          type="button"
-          className={`tab-btn ${activeTab === "gym" ? "active" : ""}`}
-          onClick={() => setActiveTab("gym")}
-        >
-          <Dumbbell size={17} color="var(--accent-gym)" />
-          <span>Gym Logger ({data.gym.length})</span>
-        </button>
-        <button
-          type="button"
-          className={`tab-btn ${activeTab === "bouldering" ? "active" : ""}`}
-          onClick={() => setActiveTab("bouldering")}
-        >
-          <Mountain size={17} color="var(--accent-boulder)" />
-          <span>Bouldering &amp; Climbing ({data.bouldering.length})</span>
-        </button>
-        <button
-          type="button"
-          className={`tab-btn ${activeTab === "strava" ? "active" : ""}`}
-          onClick={() => setActiveTab("strava")}
-        >
-          <RefreshCw size={17} color="#fc4c02" />
-          <span>Strava Sync</span>
-        </button>
-      </nav>
-
       {errorMsg && (
         <div className="error-banner" role="alert">
-          <strong>Validation / Security Guard:</strong> {errorMsg}
+          <strong>Hinweis:</strong> {errorMsg}
         </div>
       )}
 
-      {activeTab === "gym" && (
-        <GymModule
-          entries={data.gym}
+      {/* 4 Soft-Pastel Overview Cards (Streak, Gym, Cardio, Bouldering) */}
+      <WeeklySplitCards summary={summary} />
+
+      {/* Main Two-Column Visual Dashboard: Calendar on Left, Body Muscle Map on Right */}
+      <div className="dashboard-two-col">
+        <ActivityCalendar
+          data={data}
           todayIso={todayIso}
-          isSubmitting={isSubmitting}
-          onSubmit={(payload) => submitEntry("gym", payload)}
-          onDelete={(id) => handleDelete("gym", id)}
+          weeklyStreakCount={summary.weeklyStreakCount}
+          activeDaysThisWeek={summary.activeDaysThisWeek}
+        />
+
+        <BodyMuscleMap gymEntries={data.gym} todayIso={todayIso} />
+      </div>
+
+      {/* Clean Unified Activity Stream */}
+      <section className="panel-card" style={{ marginTop: "1.5rem" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: "0.75rem",
+            marginBottom: "1rem",
+          }}
+        >
+          <div>
+            <h2 className="panel-title" style={{ margin: 0 }}>
+              <Sparkles size={18} color="var(--pastel-lavender)" />
+              Deine letzten Trainings &amp; Aktivitäten
+            </h2>
+            <p className="panel-desc" style={{ marginBottom: 0 }}>
+              Komplett leer ohne nervige Vor-Einträge — synchronisiere einfach
+              Strava oder starte dein erstes Gym-Workout!
+            </p>
+          </div>
+        </div>
+
+        {data.gym.length === 0 &&
+        data.cardio.length === 0 &&
+        data.bouldering.length === 0 ? (
+          <div
+            style={{
+              textAlign: "center",
+              padding: "2.2rem 1rem",
+              background: "var(--bg-soft)",
+              borderRadius: 16,
+              border: "1px dashed var(--border-subtle)",
+            }}
+          >
+            <p style={{ fontWeight: 700, marginBottom: "0.35rem" }}>
+              Noch keine Workouts eingetragen ✨
+            </p>
+            <p
+              style={{
+                fontSize: "0.85rem",
+                color: "var(--text-secondary)",
+                marginBottom: "1.1rem",
+              }}
+            >
+              Klicke oben auf <strong>„Ich bin im Gym 💪“</strong> oder lade
+              deine bisherigen Hevy- &amp; Sport-Sessions über{" "}
+              <strong>„Strava &amp; Hevy Sync“</strong> rein.
+            </p>
+          </div>
+        ) : (
+          <div className="session-list">
+            {data.gym.map((item) => (
+              <div key={`gym-${item.id}`} className="session-item">
+                <div className="session-main">
+                  <div className="session-header">
+                    <span className="badge badge-gym">GYM • {item.workoutFocus}</span>
+                    <span className="session-title">{item.exerciseName}</span>
+                    <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                      {item.sessionDate}
+                    </span>
+                  </div>
+                  <div className="session-stats">
+                    <span>
+                      <strong>
+                        {item.sets} × {item.reps}
+                      </strong>{" "}
+                      @ {item.weightKg} kg
+                    </span>
+                    <span>e1RM: {item.estimated1Rm} kg</span>
+                    <span>RPE {item.rpe}</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="delete-btn"
+                  onClick={() => handleDelete("gym", item.id)}
+                  title="Löschen"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            ))}
+
+            {data.cardio.map((item) => {
+              const def = getSportDefinition(item.modality);
+              return (
+                <div key={`cardio-${item.id}`} className="session-item">
+                  <div className="session-main">
+                    <div className="session-header">
+                      <span className="badge badge-cardio">{def.label}</span>
+                      <span className="session-title">
+                        {item.durationMinutes} Min
+                        {item.distanceKm > 0 ? ` • ${item.distanceKm} km` : ""}
+                      </span>
+                      {item.distanceKm > 0 && (
+                        <span
+                          style={{
+                            fontSize: "0.78rem",
+                            color: "var(--pastel-mint)",
+                            fontWeight: 700,
+                          }}
+                        >
+                          {formatPaceMinPerKm(
+                            item.durationMinutes,
+                            item.distanceKm
+                          )}
+                        </span>
+                      )}
+                      <span
+                        style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}
+                      >
+                        {item.sessionDate}
+                      </span>
+                    </div>
+                    {item.notes && (
+                      <p className="session-notes">“{item.notes}”</p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    className="delete-btn"
+                    onClick={() => handleDelete("cardio", item.id)}
+                    title="Löschen"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              );
+            })}
+
+            {data.bouldering.map((item) => (
+              <div key={`boulder-${item.id}`} className="session-item">
+                <div className="session-main">
+                  <div className="session-header">
+                    <span className="badge badge-boulder">BOULDER</span>
+                    <span className="session-title">
+                      Grad {item.grade} ({item.style}) @ {item.location}
+                    </span>
+                    <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                      {item.sessionDate}
+                    </span>
+                  </div>
+                  <div className="session-stats">
+                    <span>Wand: {item.wallAngle}</span>
+                    <span>Versuche: {item.attempts}</span>
+                    <span>Finger/Haut: {item.skinAndFingerFeel}/10</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="delete-btn"
+                  onClick={() => handleDelete("bouldering", item.id)}
+                  title="Löschen"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* POPUP 1: "Ich bin im Gym" Live Modal */}
+      {isGymModalOpen && (
+        <GymSessionModal
+          templates={data.templates}
+          gymHistory={data.gym}
+          todayIso={todayIso}
+          onClose={() => setIsGymModalOpen(false)}
+          onSaveGymSet={(payload) => submitEntry("gym", payload)}
+          onSaveTemplate={(payload) => submitEntry("template", payload)}
+          onDeleteTemplate={(id) => handleDelete("template", id)}
         />
       )}
 
-      {activeTab === "cardio" && (
-        <CardioModule
-          entries={data.cardio}
+      {/* POPUP 2: Quick Sport / Bouldering Modal */}
+      {isQuickSportModalOpen && (
+        <QuickActivityModal
           todayIso={todayIso}
           isSubmitting={isSubmitting}
-          onSubmit={(payload) => submitEntry("cardio", payload)}
-          onDelete={(id) => handleDelete("cardio", id)}
+          onClose={() => setIsQuickSportModalOpen(false)}
+          onSubmitCardio={(payload) => submitEntry("cardio", payload)}
+          onSubmitBoulder={(payload) => submitEntry("bouldering", payload)}
         />
       )}
 
-      {activeTab === "bouldering" && (
-        <BoulderingModule
-          entries={data.bouldering}
-          todayIso={todayIso}
-          isSubmitting={isSubmitting}
-          onSubmit={(payload) => submitEntry("bouldering", payload)}
-          onDelete={(id) => handleDelete("bouldering", id)}
-        />
-      )}
-
-      {activeTab === "strava" && (
+      {/* POPUP 3: Strava & Hevy Sync Modal */}
+      {isStravaModalOpen && (
         <StravaSyncModule
           todayIso={todayIso}
+          onClose={() => setIsStravaModalOpen(false)}
           onSynced={(newData) => {
             setErrorMsg(null);
             setData(newData);

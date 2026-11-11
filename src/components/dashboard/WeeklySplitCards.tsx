@@ -1,18 +1,14 @@
 "use client";
 
 import React from "react";
-import { Dumbbell, HeartPulse, Mountain } from "lucide-react";
+import { Dumbbell, HeartPulse, Mountain, Flame } from "lucide-react";
 import type { WeeklyAdherenceSummary } from "@/lib/metrics";
 
 interface WeeklySplitCardsProps {
   summary: WeeklyAdherenceSummary;
-  totalBoulderingProblems: number;
 }
 
-export function WeeklySplitCards({
-  summary,
-  totalBoulderingProblems,
-}: WeeklySplitCardsProps) {
+export function WeeklySplitCards({ summary }: WeeklySplitCardsProps) {
   const gymPct = Math.min(
     100,
     Math.round((summary.gymDaysCount / summary.gymTarget) * 100)
@@ -21,110 +17,88 @@ export function WeeklySplitCards({
     100,
     Math.round((summary.cardioSessionsCount / summary.cardioTarget) * 100)
   );
-  const boulderPct = Math.min(100, summary.boulderingSessionsCount * 100);
 
   return (
-    <section className="split-grid" aria-label="Weekly Training Split Progress">
-      <div className="metric-card">
+    <section className="split-grid" aria-label="Wochen-Fortschritt">
+      {/* 1. Weekly Streak Card */}
+      <div className="metric-card pastel-card-peach">
         <div className="metric-top">
-          <span className="metric-label">Gym Strength (Target: 2x / wk)</span>
-          <Dumbbell size={18} color="var(--accent-gym)" />
+          <span className="metric-label">Wochen-Streak</span>
+          <Flame size={19} color="var(--pastel-peach)" />
+        </div>
+        <div className="metric-value">
+          {summary.weeklyStreakCount}{" "}
+          <span className="metric-unit">
+            {summary.weeklyStreakCount === 1 ? "Woche" : "Wochen"} 🔥
+          </span>
+        </div>
+        <div className="metric-foot">
+          <span>{summary.activeDaysThisWeek} aktive Tage diese Woche</span>
+        </div>
+      </div>
+
+      {/* 2. Gym 2x/wk Card */}
+      <div className="metric-card pastel-card-lavender">
+        <div className="metric-top">
+          <span className="metric-label">Gym (Ziel: 2x / Woche)</span>
+          <Dumbbell size={19} color="var(--pastel-lavender)" />
         </div>
         <div className="metric-value">
           {summary.gymDaysCount} / {summary.gymTarget}{" "}
-          <span
-            style={{
-              fontSize: "0.95rem",
-              color: "var(--text-secondary)",
-              fontWeight: 500,
-            }}
-          >
-            days this week
-          </span>
+          <span className="metric-unit">Sessions</span>
         </div>
         <div className="progress-track">
           <div
             className="progress-fill"
             style={{
               width: `${gymPct}%`,
-              backgroundColor: "var(--accent-gym)",
+              backgroundColor: "var(--pastel-lavender)",
             }}
           />
         </div>
         <div className="metric-foot">
-          <span>Weekly Tonnage: {summary.totalVolumeKg.toLocaleString()} kg</span>
-          <span>Week of {summary.weekStart}</span>
+          <span>Volumen: {summary.totalVolumeKg.toLocaleString()} kg</span>
         </div>
       </div>
 
-      <div className="metric-card">
+      {/* 3. Cardio & Multi-Sport 2+/wk Card */}
+      <div className="metric-card pastel-card-mint">
         <div className="metric-top">
-          <span className="metric-label">
-            Cardio Conditioning (Target: 2+ / wk)
-          </span>
-          <HeartPulse size={18} color="var(--accent-cardio)" />
+          <span className="metric-label">Cardio &amp; Sport (2+ / Woche)</span>
+          <HeartPulse size={19} color="var(--pastel-mint)" />
         </div>
         <div className="metric-value">
           {summary.cardioSessionsCount} / {summary.cardioTarget}+{" "}
-          <span
-            style={{
-              fontSize: "0.95rem",
-              color: "var(--text-secondary)",
-              fontWeight: 500,
-            }}
-          >
-            sessions
-          </span>
+          <span className="metric-unit">Sessions</span>
         </div>
         <div className="progress-track">
           <div
             className="progress-fill"
             style={{
               width: `${cardioPct}%`,
-              backgroundColor: "var(--accent-cardio)",
+              backgroundColor: "var(--pastel-mint)",
             }}
           />
         </div>
         <div className="metric-foot">
-          <span>Total Time: {summary.totalCardioMinutes} min</span>
-          <span>
-            {summary.cardioSessionsCount >= summary.cardioTarget
-              ? "Target Hit!"
-              : `${summary.cardioTarget - summary.cardioSessionsCount} more to go`}
-          </span>
+          <span>Dauer: {summary.totalCardioMinutes} Min</span>
         </div>
       </div>
 
-      <div className="metric-card">
+      {/* 4. Bouldering Card */}
+      <div className="metric-card pastel-card-pink">
         <div className="metric-top">
-          <span className="metric-label">Bouldering &amp; Climbing</span>
-          <Mountain size={18} color="var(--accent-boulder)" />
+          <span className="metric-label">Bouldern &amp; Klettern</span>
+          <Mountain size={19} color="var(--pastel-pink)" />
         </div>
         <div className="metric-value">
           {summary.boulderingSendsCount}{" "}
-          <span
-            style={{
-              fontSize: "0.95rem",
-              color: "var(--text-secondary)",
-              fontWeight: 500,
-            }}
-          >
-            tops ({summary.boulderingSessionsCount} session
-            {summary.boulderingSessionsCount === 1 ? "" : "s"} this wk)
+          <span className="metric-unit">
+            Tops ({summary.boulderingSessionsCount} Sessions)
           </span>
         </div>
-        <div className="progress-track">
-          <div
-            className="progress-fill"
-            style={{
-              width: `${boulderPct}%`,
-              backgroundColor: "var(--accent-boulder)",
-            }}
-          />
-        </div>
         <div className="metric-foot">
-          <span>All-Time Logged Problems: {totalBoulderingProblems}</span>
-          <span>Skin &amp; Finger Tracked</span>
+          <span>Woche ab {summary.weekStart}</span>
         </div>
       </div>
     </section>

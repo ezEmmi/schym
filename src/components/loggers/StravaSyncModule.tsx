@@ -1,22 +1,24 @@
 "use client";
 
 import React, { useState } from "react";
-import { RefreshCw, CheckCircle2, KeyRound, FileJson } from "lucide-react";
+import { RefreshCw, CheckCircle2, KeyRound, FileJson, X } from "lucide-react";
 import type { FitnessDataset } from "@/lib/db/schema";
 
 interface StravaSyncModuleProps {
   todayIso: string;
   onSynced: (newData: FitnessDataset, importedCount: number) => void;
   onError: (msg: string) => void;
+  onClose?: () => void;
 }
 
 export function StravaSyncModule({
   todayIso,
   onSynced,
   onError,
+  onClose,
 }: StravaSyncModuleProps) {
   const [accessToken, setAccessToken] = useState("");
-  const [perPage, setPerPage] = useState("15");
+  const [perPage, setPerPage] = useState("20");
   const [rawJson, setRawJson] = useState("");
   const [isSyncing, setIsSyncing] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -42,16 +44,16 @@ export function StravaSyncModule({
         error?: string;
       };
       if (!res.ok || !json.ok || !json.data) {
-        onError(json.error ?? "Strava API sync failed.");
+        onError(json.error ?? "Strava API Sync fehlgeschlagen.");
         return;
       }
-      setAccessToken(""); // Clear token immediately from client memory
+      setAccessToken("");
       setStatusMessage(
-        `Successfully synced ${json.importedCount ?? 0} activities from Strava API!`
+        `${json.importedCount ?? 0} Aktivitäten (inkl. Hevy Gym-Pläne) von Strava geladen!`
       );
       onSynced(json.data, json.importedCount ?? 0);
     } catch {
-      onError("Network error while contacting Strava Sync endpoint.");
+      onError("Netzwerkfehler beim Strava Sync.");
     } finally {
       setIsSyncing(false);
     }
@@ -76,72 +78,85 @@ export function StravaSyncModule({
         error?: string;
       };
       if (!res.ok || !json.ok || !json.data) {
-        onError(json.error ?? "Strava JSON import failed validation.");
+        onError(json.error ?? "Strava JSON Import fehlgeschlagen.");
         return;
       }
       setRawJson("");
       setStatusMessage(
-        `Imported ${json.importedCount ?? 0} multi-sport Strava workouts into local SQLite!`
+        `${json.importedCount ?? 0} Strava / Hevy Workouts erfolgreich importiert!`
       );
       onSynced(json.data, json.importedCount ?? 0);
     } catch {
-      onError("Failed to import Strava JSON activities.");
+      onError("Fehler beim Importieren der Strava JSON Daten.");
     } finally {
       setIsSyncing(false);
     }
   }
 
-  const sampleStravaActivities = [
+  // Realistic sample showing how a Hevy Gym workout synced via Strava + Cardio run looks when imported
+  const sampleHevyAndStravaActivities = [
     {
-      name: "Evening Gravel Grind & Singletrack",
-      sport_type: "GravelRide",
-      start_date_local: `${todayIso}T17:30:00Z`,
-      moving_time: 3720,
-      distance: 24800,
-      average_heartrate: 158,
-      total_elevation_gain: 410,
+      name: "Oberkörper & Maschinen (Hevy)",
+      sport_type: "WeightTraining",
+      start_date_local: `${todayIso}T18:00:00Z`,
+      moving_time: 3600,
+      distance: 0,
+      average_heartrate: 128,
+      description:
+        "Bench Press (Machine)\nSet 1: 75 kg x 8\nSet 2: 75 kg x 8\nSet 3: 75 kg x 8\n\nLat Pulldown (Cable)\nSet 1: 65 kg x 10\nSet 2: 65 kg x 10\nSet 3: 65 kg x 10\n\nShoulder Press (Machine)\nSet 1: 45 kg x 10\nSet 2: 45 kg x 10\n\nLeg Press (Machine)\nSet 1: 140 kg x 10\nSet 2: 140 kg x 10",
     },
     {
-      name: "Padel Doubles Match",
-      sport_type: "Padel",
-      start_date_local: `${todayIso}T19:00:00Z`,
-      moving_time: 5400,
-      distance: 3200,
-      average_heartrate: 146,
-    },
-    {
-      name: "Alpine Ridge Trail Run",
-      sport_type: "TrailRun",
-      start_date_local: `${todayIso}T08:15:00Z`,
-      moving_time: 3180,
-      distance: 9400,
-      average_heartrate: 164,
-      total_elevation_gain: 520,
+      name: "Abendrunde Laufen",
+      sport_type: "Run",
+      start_date_local: `${todayIso}T19:30:00Z`,
+      moving_time: 2280,
+      distance: 6800,
+      average_heartrate: 154,
     },
   ];
 
   return (
-    <div className="workspace-grid">
-      <section className="panel-card">
-        <h2 className="panel-title">
-          <KeyRound size={19} color="#fc4c02" />
-          Direct Strava API v3 Sync
-        </h2>
-        <p className="panel-desc">
-          Paste your Strava Access Token (from{" "}
-          <code>strava.com/settings/api</code>) to pull your latest activities.
-          Your token is used in-memory for the request and is{" "}
-          <strong>never written to disk or git</strong>.
-        </p>
+    <div className="modal-backdrop" role="dialog" aria-modal="true">
+      <div className="modal-sheet">
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            paddingBottom: "1rem",
+            borderBottom: "1px solid var(--border-subtle)",
+            marginBottom: "1.25rem",
+          }}
+        >
+          <div>
+            <h2 style={{ fontSize: "1.15rem", fontWeight: 800 }}>
+              Strava &amp; Hevy Sync
+            </h2>
+            <p style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
+              Liest deine Läufe, Sportarten und sogar deine Hevy-Übungen &amp;
+              Gewichte direkt aus Strava aus!
+            </p>
+          </div>
+          {onClose && (
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={onClose}
+              aria-label="Schließen"
+            >
+              <X size={20} />
+            </button>
+          )}
+        </div>
 
         {statusMessage && (
           <div
             style={{
-              background: "rgba(52, 211, 153, 0.12)",
-              border: "1px solid rgba(52, 211, 153, 0.35)",
-              color: "#6ee7b7",
+              background: "rgba(166, 227, 161, 0.14)",
+              border: "1px solid rgba(166, 227, 161, 0.4)",
+              color: "var(--pastel-mint)",
               padding: "0.75rem 1rem",
-              borderRadius: 10,
+              borderRadius: 12,
               fontSize: "0.85rem",
               marginBottom: "1rem",
               display: "flex",
@@ -154,98 +169,123 @@ export function StravaSyncModule({
           </div>
         )}
 
-        <form className="form-stack" onSubmit={handleTokenSync}>
-          <label className="field-label">
-            Strava OAuth Access Token (Scope: activity:read)
-            <input
-              type="password"
-              className="field-input"
-              placeholder="Paste Strava Bearer token..."
-              value={accessToken}
-              onChange={(e) => setAccessToken(e.target.value)}
-              required
-            />
-          </label>
-
-          <label className="field-label">
-            Number of Recent Activities to Fetch (1–100)
-            <input
-              type="number"
-              min={1}
-              max={100}
-              className="field-input"
-              value={perPage}
-              onChange={(e) => setPerPage(e.target.value)}
-              required
-            />
-          </label>
-
-          <button
-            type="submit"
-            className="submit-btn"
-            style={{ backgroundColor: "#fc4c02", color: "#fff" }}
-            disabled={isSyncing}
-          >
-            {isSyncing ? "Syncing from Strava..." : "Sync My Strava Activities"}
-          </button>
-        </form>
-      </section>
-
-      <section className="panel-card">
-        <h2 className="panel-title">
-          <FileJson size={19} color="var(--accent-cardio)" />
-          Strava JSON Import &amp; 1-Click Demo Sync
-        </h2>
-        <p className="panel-desc">
-          Automatically maps Strava <code>sport_type</code> (Run, TrailRun,
-          GravelRide, Swim, Padel, Tennis, Soccer, AlpineSki, etc.) into your
-          Multi-Sport feed.
-        </p>
-
-        <div className="form-stack">
-          <button
-            type="button"
-            className="submit-btn btn-cardio"
-            disabled={isSyncing}
-            onClick={() => handleJsonImport(sampleStravaActivities)}
-          >
-            <RefreshCw
-              size={15}
-              style={{ display: "inline", marginRight: 6, verticalAlign: -2 }}
-            />
-            1-Click Test: Sync 3 Sample Strava Multi-Sport Workouts
-          </button>
-
-          <label className="field-label" style={{ marginTop: "0.5rem" }}>
-            Or Paste Strava Activities JSON Array
-            <textarea
-              className="field-input"
-              rows={6}
-              placeholder='[{"name":"Morning Run","sport_type":"Run","start_date_local":"2026-11-11T07:00:00Z","moving_time":2400,"distance":7200,"average_heartrate":151}]'
-              value={rawJson}
-              onChange={(e) => setRawJson(e.target.value)}
-              style={{ fontFamily: "monospace", fontSize: "0.8rem" }}
-            />
-          </label>
-
-          <button
-            type="button"
-            className="submit-btn btn-gym"
-            disabled={isSyncing || rawJson.trim().length === 0}
-            onClick={() => {
-              try {
-                const parsed: unknown = JSON.parse(rawJson);
-                const arr = Array.isArray(parsed) ? parsed : [parsed];
-                void handleJsonImport(arr);
-              } catch {
-                onError("Invalid JSON syntax in Strava payload.");
-              }
+        <div className="workspace-grid">
+          <section
+            style={{
+              background: "var(--bg-soft)",
+              padding: "1.1rem",
+              borderRadius: 16,
+              border: "1px solid var(--border-subtle)",
             }}
           >
-            Validate &amp; Import Strava JSON
-          </button>
+            <h3 className="panel-title">
+              <KeyRound size={18} color="var(--pastel-peach)" />
+              Direkter Strava API Sync
+            </h3>
+            <p className="panel-desc">
+              Gib deinen Strava Access Token ein (unter{" "}
+              <code>strava.com/settings/api</code>). Er wird nur im RAM genutzt
+              und niemals gespeichert.
+            </p>
+
+            <form className="form-stack" onSubmit={handleTokenSync}>
+              <label className="field-label">
+                Strava OAuth Access Token
+                <input
+                  type="password"
+                  className="field-input"
+                  placeholder="Bearer Token einfügen..."
+                  value={accessToken}
+                  onChange={(e) => setAccessToken(e.target.value)}
+                  required
+                />
+              </label>
+
+              <label className="field-label">
+                Anzahl letzter Aktivitäten (1–100)
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  className="field-input"
+                  value={perPage}
+                  onChange={(e) => setPerPage(e.target.value)}
+                  required
+                />
+              </label>
+
+              <button
+                type="submit"
+                className="pastel-btn btn-peach"
+                disabled={isSyncing}
+              >
+                {isSyncing
+                  ? "Synchronisiere..."
+                  : "Jetzt von Strava synchronisieren"}
+              </button>
+            </form>
+          </section>
+
+          <section
+            style={{
+              background: "var(--bg-soft)",
+              padding: "1.1rem",
+              borderRadius: 16,
+              border: "1px solid var(--border-subtle)",
+            }}
+          >
+            <h3 className="panel-title">
+              <FileJson size={18} color="var(--pastel-mint)" />
+              Hevy + Strava Demo oder JSON Import
+            </h3>
+            <p className="panel-desc">
+              Wenn Hevy deine Sätze in die Strava-Beschreibung schreibt, baut
+              Schym daraus automatisch deinen Gym-Plan + Muskel-Map!
+            </p>
+
+            <div className="form-stack">
+              <button
+                type="button"
+                className="pastel-btn btn-mint"
+                disabled={isSyncing}
+                onClick={() => handleJsonImport(sampleHevyAndStravaActivities)}
+              >
+                <RefreshCw size={15} />
+                <span>Test: Hevy Gym-Plan + Lauf aus Strava laden</span>
+              </button>
+
+              <label className="field-label" style={{ marginTop: "0.35rem" }}>
+                Oder Strava JSON Array einfügen
+                <textarea
+                  className="field-input"
+                  rows={4}
+                  placeholder='[{"name":"Push Hevy","sport_type":"WeightTraining","start_date_local":"2026-11-11T18:00:00Z","moving_time":3600,"description":"Bench Press\nSet 1: 80 kg x 8"}]'
+                  value={rawJson}
+                  onChange={(e) => setRawJson(e.target.value)}
+                  style={{ fontFamily: "monospace", fontSize: "0.78rem" }}
+                />
+              </label>
+
+              <button
+                type="button"
+                className="pastel-btn btn-lavender"
+                disabled={isSyncing || rawJson.trim().length === 0}
+                onClick={() => {
+                  try {
+                    const parsed: unknown = JSON.parse(rawJson);
+                    const arr = Array.isArray(parsed) ? parsed : [parsed];
+                    void handleJsonImport(arr);
+                  } catch {
+                    onError("Ungültiges JSON-Format.");
+                  }
+                }}
+              >
+                JSON importieren
+              </button>
+            </div>
+          </section>
         </div>
-      </section>
+      </div>
     </div>
   );
 }
