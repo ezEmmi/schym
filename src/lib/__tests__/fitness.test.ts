@@ -4,6 +4,9 @@ import {
   cardioSessionInputSchema,
   boulderingSessionInputSchema,
   workoutTemplateInputSchema,
+  supplementItemInputSchema,
+  supplementToggleInputSchema,
+  signalNotifyRequestSchema,
   deleteEntryInputSchema,
   stravaSyncRequestSchema,
 } from "../validation/fitness";
@@ -24,10 +27,13 @@ import {
   parseHevyDescriptionFromStrava,
 } from "../muscles";
 import {
+  normalizeToIsoDate,
   parseHevyCsv,
   parseStravaActivitiesCsv,
   parseStravaWebTableText,
 } from "../importers";
+import { computeCoachBriefing } from "../coach";
+import { isAllowedSignalCliEndpoint } from "../signal";
 
 describe("Fitness Input Validation & Security Guards", () => {
   it("validates a well-formed gym entry and rejects prototype/unknown keys (.strict)", () => {
@@ -57,7 +63,7 @@ describe("Fitness Input Validation & Security Guards", () => {
     expect(maliciousExtraProperty.success).toBe(false);
   });
 
-  it("validates custom workout templates strictly", () => {
+  it("validates custom workout templates and daily supplements strictly", () => {
     const validTpl = workoutTemplateInputSchema.safeParse({
       name: "Mein Gym Tag A",
       exercises: [
@@ -71,6 +77,40 @@ describe("Fitness Input Validation & Security Guards", () => {
       ],
     });
     expect(validTpl.success).toBe(true);
+
+    const validSupp = supplementItemInputSchema.safeParse({
+      name: "Kreatin Monohydrat",
+      dosage: "5g",
+      timing: "Morgens",
+      color: "#cba6f7",
+    });
+    expect(validSupp.success).toBe(true);
+
+    const validToggle = supplementToggleInputSchema.safeParse({
+      supplementId: 1,
+      logDate: "2026-11-11",
+    });
+    expect(validToggle.success).toBe(true);
+  });
+
+  it("validates Signal notification payloads and blocks SSRF to external hosts", () => {
+    expect(
+      signalNotifyRequestSchema.safeParse({
+        mode: "signal_cli",
+        recipientPhone: "+491701234567",
+        message: "Yo! Heute steht Gym an.",
+      }).success
+    ).toBe(true);
+
+    expect(
+      isAllowedSignalCliEndpoint("http://127.0.0.1:8080/v2/send")
+    ).toBe(true);
+    expect(
+      isAllowedSignalCliEndpoint("http://signal-cli:8080/v2/send")
+    ).toBe(true);
+    expect(
+      isAllowedSignalCliEndpoint("https://evil-attacker.example.com/steal")
+    ).toBe(false);
   });
 
   it("validates multi-sport sessions across 20+ sports", () => {
@@ -124,19 +164,52 @@ describe("Fitness Input Validation & Security Guards", () => {
     ).toBe(true);
 
     expect(
-      deleteEntryInputSchema.safeParse({ category: "template", id: 2 }).success
+      deleteEntryInputSchema.safeParse({ category: "supplement", id: 2 }).success
     ).toBe(true);
   });
 });
 
-describe("Smart Progressive Overload, Muscle Inference & Hevy Parser", () => {
-  it("infers muscle groups from German and English machine names", () => {
-    expect(inferMuscleGroupFromExercise("Brustpresse Maschine")).toBe("chest");
-    expect(inferMuscleGroupFromExercise("Lat Pulldown (Cable)")).toBe("back");
-    expect(inferMuscleGroupFromExercise("Beinpresse")).toBe("quads");
+describe("German & English Date Normalization & Multi-Line CSV Engine", () => {
+  it("normalizes German and English Hevy/Strava dates without UTC timezone shift", () => {
+    expect(normalizeToIsoDate("14. Okt. 2025, 17:34")).toBe("2025-10-14");
+    expect(normalizeToIsoDate("15 Mai 2025, 18:00")).toBe("2025-05-15");
+    expect(normalizeToIsoDate("3. Dez 2025")).toBe("2025-12-03");
+    expect(normalizeToIsoDate("22. März 2025 19:15")).toBe("2025-03-22");
+    expect(normalizeToIsoDate("10 Nov 2025, 17:30")).toBe("2025-11-10");
+    expect(normalizeToIsoDate("Oct 14, 2025, 5:34 PM")).toBe("2025-10-14");
+    expect(normalizeToIsoDate("14.10.2025")).toBe("2025-10-14");
+    expect(normalizeToIsoDate("2025-10-14 17:30:00")).toBe("2025-10-14");
   });
 
-  it("suggests +2.5kg progressive overload when target reps were hit at RPE <= 8.5", () => {
+  it("parses multi-line Hevy CSV exports, Strava CSV exports, and Strava Web Copy-Paste tables", () => {
+    const hevyCsvWithMultilineNote = `"title","start_time","description","exercise_title","weight_kg","reps","rpe"\n"Push Tag A","14. Okt. 2025, 18:00","Super Session\nmit gutem Pump","Bench Press",80,8,8\n"Push Tag A","14. Okt. 2025, 18:00","Super Session\nmit gutem Pump","Bench Press",82.5,8,8.5`;
+    const hevyRes = parseHevyCsv(hevyCsvWithMultilineNote);
+    expect(hevyRes.gymEntries.length).toBe(1);
+    expect(hevyRes.gymEntries[0]?.sessionDate).toBe("2025-10-14");
+    expect(hevyRes.gymEntries[0]?.sets).toBe(2);
+    expect(hevyRes.gymEntries[0]?.weightKg).toBe(82.5);
+    expect(hevyRes.templates.length).toBe(1);
+
+    const stravaCsv = `Activity Date,Activity Name,Activity Type,Moving Time,Distance,Average Heart Rate\n"15. Mai 2025","Abendlauf","Run",2400,7500,152`;
+    const stravaRes = parseStravaActivitiesCsv(stravaCsv);
+    expect(stravaRes.cardioSessions.length).toBe(1);
+    expect(stravaRes.cardioSessions[0]?.sessionDate).toBe("2025-05-15");
+    expect(stravaRes.cardioSessions[0]?.distanceKm).toBe(7.5);
+    expect(stravaRes.cardioSessions[0]?.durationMinutes).toBe(40);
+
+    const copyPaste = `Lauf\t10.11.2026\tFeierabendrunde\t38:15\t7,25 km`;
+    const pasteRes = parseStravaWebTableText(copyPaste);
+    expect(pasteRes.cardioSessions.length).toBe(1);
+    expect(pasteRes.cardioSessions[0]?.sessionDate).toBe("2026-11-10");
+    expect(pasteRes.cardioSessions[0]?.distanceKm).toBe(7.25);
+  });
+});
+
+describe("Smart Habit-Engine, Overload Coach & Hevy Parser", () => {
+  it("infers muscle groups and suggests +2.5kg progressive overload", () => {
+    expect(inferMuscleGroupFromExercise("Brustpresse Maschine")).toBe("chest");
+    expect(inferMuscleGroupFromExercise("Lat Pulldown (Cable)")).toBe("back");
+
     const suggestion = computeOverloadSuggestion("Brustpresse", 8, 60, [
       {
         id: 1,
@@ -157,6 +230,63 @@ describe("Smart Progressive Overload, Muscle Inference & Hevy Parser", () => {
     expect(suggestion.suggestedWeightKg).toBe(72.5);
   });
 
+  it("learns weekday habits, muscle recovery, and pending supplements in computeCoachBriefing", () => {
+    const briefing = computeCoachBriefing(
+      {
+        gym: [
+          {
+            id: 1,
+            sessionDate: "2026-11-04", // Wednesday
+            workoutFocus: "Push Plan A",
+            exerciseName: "Bench Press",
+            muscleGroup: "chest",
+            sets: 3,
+            reps: 8,
+            weightKg: 80,
+            rpe: 8,
+            estimated1Rm: 101.3,
+            notes: "",
+            createdAt: "2026-11-04T18:00:00Z",
+          },
+        ],
+        cardio: [],
+        bouldering: [],
+        templates: [
+          {
+            id: 1,
+            name: "Push Plan A",
+            exercises: [
+              {
+                name: "Bench Press",
+                muscleGroup: "chest",
+                targetSets: 3,
+                targetReps: 8,
+                defaultWeightKg: 80,
+              },
+            ],
+            createdAt: "2026-11-04T18:00:00Z",
+          },
+        ],
+        supplements: [
+          {
+            id: 1,
+            name: "Kreatin",
+            dosage: "5g",
+            timing: "Morgens",
+            color: "#cba6f7",
+            createdAt: "2026-11-01T00:00:00Z",
+          },
+        ],
+        supplementLogs: [],
+      },
+      "2026-11-11" // Next Wednesday!
+    );
+
+    expect(briefing.recommendedAction).toBe("gym");
+    expect(briefing.pendingSupplementNames).toContain("Kreatin (5g)");
+    expect(briefing.signalMessageText).toContain("Kreatin (5g)");
+  });
+
   it("parses Hevy workout descriptions from Strava activities", () => {
     const parsed = parseHevyDescriptionFromStrava(
       "Bench Press (Machine)\nSet 1: 75 kg x 8\nSet 2: 75 kg x 8\n\nLat Pulldown\nSet 1: 60 kg x 10"
@@ -166,37 +296,14 @@ describe("Smart Progressive Overload, Muscle Inference & Hevy Parser", () => {
     expect(parsed[0]?.defaultWeightKg).toBe(75);
     expect(parsed[1]?.muscleGroup).toBe("back");
   });
-
-  it("parses free Hevy CSV exports, Strava CSV exports, and Strava Web Copy-Paste tables without Pro subscription", () => {
-    const hevyCsv = `"title","start_time","exercise_title","weight_kg","reps","rpe"\n"Push Tag A","2026-11-10 18:00","Bench Press",80,8,8\n"Push Tag A","2026-11-10 18:00","Bench Press",82.5,8,8.5`;
-    const hevyRes = parseHevyCsv(hevyCsv);
-    expect(hevyRes.gymEntries.length).toBe(1);
-    expect(hevyRes.gymEntries[0]?.sets).toBe(2);
-    expect(hevyRes.gymEntries[0]?.weightKg).toBe(82.5);
-    expect(hevyRes.templates.length).toBe(1);
-
-    const stravaCsv = `Activity Date,Activity Name,Activity Type,Moving Time,Distance,Average Heart Rate\n"2026-11-11","Abendlauf","Run",2400,7500,152`;
-    const stravaRes = parseStravaActivitiesCsv(stravaCsv);
-    expect(stravaRes.cardioSessions.length).toBe(1);
-    expect(stravaRes.cardioSessions[0]?.distanceKm).toBe(7.5);
-    expect(stravaRes.cardioSessions[0]?.durationMinutes).toBe(40);
-
-    const copyPaste = `Lauf\t10.11.2026\tFeierabendrunde\t38:15\t7,25 km`;
-    const pasteRes = parseStravaWebTableText(copyPaste);
-    expect(pasteRes.cardioSessions.length).toBe(1);
-    expect(pasteRes.cardioSessions[0]?.sessionDate).toBe("2026-11-10");
-    expect(pasteRes.cardioSessions[0]?.distanceKm).toBe(7.25);
-  });
 });
 
 describe("Fitness Domain Metrics & Weekly Streak", () => {
-  it("computes Epley e1RM and pace accurately", () => {
+  it("computes Epley e1RM, pace, and consecutive weekly streaks accurately", () => {
     expect(calculateEstimated1Rm(100, 6)).toBe(120);
     expect(formatPaceMinPerKm(25, 5)).toBe("5:00 /km");
-  });
-
-  it("computes consecutive weekly streaks and weekly summary", () => {
     expect(getIsoWeekMonday("2026-11-11")).toBe("2026-11-09");
+
     const streak = calculateWeeklyStreak("2026-11-11", [
       "2026-10-27",
       "2026-11-03",

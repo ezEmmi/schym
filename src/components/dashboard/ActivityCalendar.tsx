@@ -1,7 +1,13 @@
 "use client";
 
-import React, { useState } from "react";
-import { ChevronLeft, ChevronRight, Flame, CalendarDays } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Flame,
+  CalendarDays,
+  History,
+} from "lucide-react";
 import type { FitnessDataset } from "@/lib/db/schema";
 
 interface ActivityCalendarProps {
@@ -33,13 +39,36 @@ export function ActivityCalendar({
   weeklyStreakCount,
   activeDaysThisWeek,
 }: ActivityCalendarProps) {
-  const [year, setYear] = useState(() => Number(todayIso.slice(0, 4)));
-  const [month, setMonth] = useState(() => Number(todayIso.slice(5, 7)) - 1);
-  const [selectedDay, setSelectedDay] = useState<string>(todayIso);
+  // Find latest logged activity date across all disciplines (so imported 2025/2026 Hevy CSVs are immediately visible!)
+  const allDates = [
+    ...data.gym.map((g) => g.sessionDate),
+    ...data.cardio.map((c) => c.sessionDate),
+    ...data.bouldering.map((b) => b.sessionDate),
+  ]
+    .filter(Boolean)
+    .sort();
+
+  const latestActivityDate = allDates[allDates.length - 1] ?? todayIso;
+
+  const [year, setYear] = useState(() =>
+    Number(latestActivityDate.slice(0, 4))
+  );
+  const [month, setMonth] = useState(
+    () => Number(latestActivityDate.slice(5, 7)) - 1
+  );
+  const [selectedDay, setSelectedDay] = useState<string>(latestActivityDate);
+
+  // When a new CSV import arrives and changes latestActivityDate, jump to it automatically
+  useEffect(() => {
+    if (latestActivityDate) {
+      setYear(Number(latestActivityDate.slice(0, 4)));
+      setMonth(Number(latestActivityDate.slice(5, 7)) - 1);
+      setSelectedDay(latestActivityDate);
+    }
+  }, [latestActivityDate]);
 
   const firstDayOfMonth = new Date(Date.UTC(year, month, 1));
   const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
-  // Convert Sunday=0..Saturday=6 into Monday=0..Sunday=6
   const startOffset = (firstDayOfMonth.getUTCDay() + 6) % 7;
 
   const cells: Array<string | null> = [];
@@ -59,6 +88,12 @@ export function ActivityCalendar({
     setMonth(next.getUTCMonth());
   }
 
+  function jumpToDate(iso: string) {
+    setYear(Number(iso.slice(0, 4)));
+    setMonth(Number(iso.slice(5, 7)) - 1);
+    setSelectedDay(iso);
+  }
+
   const dayGym = data.gym.filter((g) => g.sessionDate === selectedDay);
   const dayCardio = data.cardio.filter((c) => c.sessionDate === selectedDay);
   const dayBoulder = data.bouldering.filter(
@@ -66,44 +101,62 @@ export function ActivityCalendar({
   );
 
   return (
-    <div className="panel-card" style={{ display: "flex", flexDirection: "column", gap: "1.1rem" }}>
-      {/* Top Row: Streak Banner + Month Controls */}
+    <div
+      className="panel-card"
+      style={{ display: "flex", flexDirection: "column", gap: "1.05rem" }}
+    >
+      {/* Top Row: Title + Streak Pill */}
       <div
         style={{
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
           flexWrap: "wrap",
-          gap: "0.75rem",
+          gap: "0.65rem",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.55rem" }}>
           <CalendarDays size={20} color="var(--pastel-lavender)" />
           <h2 className="panel-title" style={{ margin: 0 }}>
             Aktivitäts-Kalender
           </h2>
         </div>
 
-        <div
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "0.45rem",
-            padding: "0.38rem 0.85rem",
-            borderRadius: "999px",
-            background: "rgba(250, 179, 135, 0.14)",
-            border: "1px solid rgba(250, 179, 135, 0.35)",
-            color: "var(--pastel-peach)",
-            fontWeight: 700,
-            fontSize: "0.8rem",
-          }}
-        >
-          <Flame size={15} />
-          <span>
-            {weeklyStreakCount} {weeklyStreakCount === 1 ? "Woche" : "Wochen"} Streak
-            {" • "}
-            {activeDaysThisWeek} {activeDaysThisWeek === 1 ? "Tag" : "Tage"} diese Woche aktiv
-          </span>
+        <div style={{ display: "flex", gap: "0.45rem", flexWrap: "wrap" }}>
+          {allDates.length > 0 && (
+            <button
+              type="button"
+              className="pill-tab"
+              style={{ fontSize: "0.72rem", padding: "0.3rem 0.65rem" }}
+              onClick={() => jumpToDate(latestActivityDate)}
+              title="Zum neuesten importierten oder geloggten Training springen"
+            >
+              <History size={13} style={{ display: "inline", marginRight: 4 }} />
+              Letztes Training ({latestActivityDate})
+            </button>
+          )}
+
+          <div
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.4rem",
+              padding: "0.32rem 0.75rem",
+              borderRadius: "999px",
+              background: "rgba(250, 179, 135, 0.14)",
+              border: "1px solid rgba(250, 179, 135, 0.35)",
+              color: "var(--pastel-peach)",
+              fontWeight: 700,
+              fontSize: "0.78rem",
+            }}
+          >
+            <Flame size={14} />
+            <span>
+              {weeklyStreakCount}{" "}
+              {weeklyStreakCount === 1 ? "Woche" : "Wochen"} Streak •{" "}
+              {activeDaysThisWeek}T aktiv
+            </span>
+          </div>
         </div>
       </div>
 
@@ -165,7 +218,9 @@ export function ActivityCalendar({
                 isToday ? "today" : ""
               }`}
             >
-              <span className="calendar-day-num">{Number(iso.slice(8, 10))}</span>
+              <span className="calendar-day-num">
+                {Number(iso.slice(8, 10))}
+              </span>
               <div className="calendar-dots">
                 {hasGym && (
                   <span
@@ -199,7 +254,7 @@ export function ActivityCalendar({
         style={{
           display: "flex",
           gap: "1rem",
-          fontSize: "0.76rem",
+          fontSize: "0.75rem",
           color: "var(--text-secondary)",
           flexWrap: "wrap",
         }}
@@ -253,13 +308,17 @@ export function ActivityCalendar({
             Kein Training an diesem Tag eingetragen (Rest Day ✨).
           </p>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+          <div
+            style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}
+          >
             {dayGym.map((g) => (
               <div
                 key={`g-${g.id}`}
                 style={{ fontSize: "0.84rem", display: "flex", gap: "0.5rem" }}
               >
-                <span style={{ color: "var(--pastel-lavender)", fontWeight: 700 }}>
+                <span
+                  style={{ color: "var(--pastel-lavender)", fontWeight: 700 }}
+                >
                   [Gym]
                 </span>
                 <span>

@@ -7,17 +7,23 @@ import {
   RefreshCw,
   Trash2,
   Sparkles,
+  Smartphone,
 } from "lucide-react";
 import type { FitnessDataset } from "@/lib/db/schema";
 import { computeWeeklySummary, formatPaceMinPerKm } from "@/lib/metrics";
+import { computeCoachBriefing } from "@/lib/coach";
 import { getSportDefinition } from "@/lib/sports-catalog";
 import { SchymLogo } from "@/components/dashboard/SchymLogo";
+import { SmartCoachBanner } from "@/components/dashboard/SmartCoachBanner";
+import { SupplementTracker } from "@/components/dashboard/SupplementTracker";
 import { WeeklySplitCards } from "@/components/dashboard/WeeklySplitCards";
 import { ActivityCalendar } from "@/components/dashboard/ActivityCalendar";
 import { BodyMuscleMap } from "@/components/dashboard/BodyMuscleMap";
+import { ProgressionChartCard } from "@/components/dashboard/ProgressionChartCard";
 import { GymSessionModal } from "@/components/loggers/GymSessionModal";
 import { QuickActivityModal } from "@/components/loggers/QuickActivityModal";
 import { StravaSyncModule } from "@/components/loggers/StravaSyncModule";
+import { MobileAndSignalModal } from "@/components/dashboard/MobileAndSignalModal";
 
 interface FitnessDashboardProps {
   initialData: FitnessDataset;
@@ -32,10 +38,11 @@ export function FitnessDashboard({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Popups / Modals: Only show when the user explicitly clicks!
+  // Popups / Modals
   const [isGymModalOpen, setIsGymModalOpen] = useState(false);
   const [isQuickSportModalOpen, setIsQuickSportModalOpen] = useState(false);
   const [isStravaModalOpen, setIsStravaModalOpen] = useState(false);
+  const [isMobileSignalModalOpen, setIsMobileSignalModalOpen] = useState(false);
 
   const summary = computeWeeklySummary(
     todayIso,
@@ -44,8 +51,16 @@ export function FitnessDashboard({
     data.bouldering
   );
 
+  const coachBriefing = computeCoachBriefing(data, todayIso);
+
   async function submitEntry(
-    type: "gym" | "cardio" | "bouldering" | "template",
+    type:
+      | "gym"
+      | "cardio"
+      | "bouldering"
+      | "template"
+      | "supplement_item"
+      | "supplement_toggle",
     payload: Record<string, unknown>
   ) {
     setErrorMsg(null);
@@ -82,7 +97,7 @@ export function FitnessDashboard({
   }
 
   async function handleDelete(
-    category: "gym" | "cardio" | "bouldering" | "template",
+    category: "gym" | "cardio" | "bouldering" | "template" | "supplement",
     id: number
   ) {
     setErrorMsg(null);
@@ -109,7 +124,7 @@ export function FitnessDashboard({
 
   return (
     <div className="app-shell">
-      {/* Top Bar: Hip Logo + 3 Clean Action Buttons */}
+      {/* Top Bar: Hip Logo + Action Buttons */}
       <header className="top-header">
         <SchymLogo />
 
@@ -138,7 +153,17 @@ export function FitnessDashboard({
             onClick={() => setIsStravaModalOpen(true)}
           >
             <RefreshCw size={16} />
-            <span>Strava &amp; Hevy Sync</span>
+            <span>Strava &amp; Hevy Import</span>
+          </button>
+
+          <button
+            type="button"
+            className="pill-tab"
+            onClick={() => setIsMobileSignalModalOpen(true)}
+            title="Handy-App (PWA) & Signal-Bot verbinden"
+          >
+            <Smartphone size={15} style={{ display: "inline", marginRight: 5 }} />
+            Handy &amp; Signal 📲
           </button>
         </div>
       </header>
@@ -149,10 +174,30 @@ export function FitnessDashboard({
         </div>
       )}
 
-      {/* 4 Soft-Pastel Overview Cards (Streak, Gym, Cardio, Bouldering) */}
+      {/* 1. Smart Habit-Engine & Daily Coach Banner */}
+      <SmartCoachBanner
+        briefing={coachBriefing}
+        onStartGym={() => setIsGymModalOpen(true)}
+        onStartCardio={() => setIsQuickSportModalOpen(true)}
+        onOpenMobileAndSignal={() => setIsMobileSignalModalOpen(true)}
+      />
+
+      {/* 2. 1-Click Daily Supplement Tracker */}
+      <SupplementTracker
+        supplements={data.supplements}
+        supplementLogs={data.supplementLogs}
+        todayIso={todayIso}
+        onToggleSupplement={(supplementId) =>
+          submitEntry("supplement_toggle", { supplementId, logDate: todayIso })
+        }
+        onAddSupplement={(payload) => submitEntry("supplement_item", payload)}
+        onDeleteSupplement={(id) => handleDelete("supplement", id)}
+      />
+
+      {/* 3. 4 Soft-Pastel Overview Cards (Streak, Gym, Cardio, Bouldering) */}
       <WeeklySplitCards summary={summary} />
 
-      {/* Main Two-Column Visual Dashboard: Calendar on Left, Body Muscle Map on Right */}
+      {/* 4. Main Two-Column Visual Dashboard: Calendar on Left, Body Muscle Map on Right */}
       <div className="dashboard-two-col">
         <ActivityCalendar
           data={data}
@@ -164,8 +209,11 @@ export function FitnessDashboard({
         <BodyMuscleMap gymEntries={data.gym} todayIso={todayIso} />
       </div>
 
-      {/* Clean Unified Activity Stream */}
-      <section className="panel-card" style={{ marginTop: "1.5rem" }}>
+      {/* 5. Machine Strength & Weight Progression Chart */}
+      <ProgressionChartCard gymEntries={data.gym} />
+
+      {/* 6. Unified Activity Stream */}
+      <section className="panel-card" style={{ marginTop: "1.35rem" }}>
         <div
           style={{
             display: "flex",
@@ -179,11 +227,12 @@ export function FitnessDashboard({
           <div>
             <h2 className="panel-title" style={{ margin: 0 }}>
               <Sparkles size={18} color="var(--pastel-lavender)" />
-              Deine letzten Trainings &amp; Aktivitäten
+              Deine letzten Trainings &amp; Aktivitäten (
+              {data.gym.length + data.cardio.length + data.bouldering.length})
             </h2>
             <p className="panel-desc" style={{ marginBottom: 0 }}>
-              Komplett leer ohne nervige Vor-Einträge — synchronisiere einfach
-              Strava oder starte dein erstes Gym-Workout!
+              Alle deine geloggten oder aus Hevy/Strava gelernten Sessions im
+              Überblick
             </p>
           </div>
         </div>
@@ -210,20 +259,25 @@ export function FitnessDashboard({
                 marginBottom: "1.1rem",
               }}
             >
-              Klicke oben auf <strong>„Ich bin im Gym 💪“</strong> oder lade
-              deine bisherigen Hevy- &amp; Sport-Sessions über{" "}
-              <strong>„Strava &amp; Hevy Sync“</strong> rein.
+              Lade einmalig deine <strong>Hevy-CSV</strong> unter{" "}
+              <strong>„Strava &amp; Hevy Import“</strong> hoch — Schym lernt
+              sofort deine Pläne, Gewichte &amp; Trainingstage, und du kannst
+              Hevy danach löschen!
             </p>
           </div>
         ) : (
           <div className="session-list">
-            {data.gym.map((item) => (
+            {data.gym.slice(0, 40).map((item) => (
               <div key={`gym-${item.id}`} className="session-item">
                 <div className="session-main">
                   <div className="session-header">
-                    <span className="badge badge-gym">GYM • {item.workoutFocus}</span>
+                    <span className="badge badge-gym">
+                      GYM • {item.workoutFocus}
+                    </span>
                     <span className="session-title">{item.exerciseName}</span>
-                    <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                    <span
+                      style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}
+                    >
                       {item.sessionDate}
                     </span>
                   </div>
@@ -236,6 +290,11 @@ export function FitnessDashboard({
                     </span>
                     <span>e1RM: {item.estimated1Rm} kg</span>
                     <span>RPE {item.rpe}</span>
+                    {item.notes && (
+                      <span style={{ color: "var(--pastel-mint)" }}>
+                        {item.notes}
+                      </span>
+                    )}
                   </div>
                 </div>
                 <button
@@ -249,7 +308,7 @@ export function FitnessDashboard({
               </div>
             ))}
 
-            {data.cardio.map((item) => {
+            {data.cardio.slice(0, 40).map((item) => {
               const def = getSportDefinition(item.modality);
               return (
                 <div key={`cardio-${item.id}`} className="session-item">
@@ -275,7 +334,10 @@ export function FitnessDashboard({
                         </span>
                       )}
                       <span
-                        style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}
+                        style={{
+                          fontSize: "0.8rem",
+                          color: "var(--text-muted)",
+                        }}
                       >
                         {item.sessionDate}
                       </span>
@@ -296,7 +358,7 @@ export function FitnessDashboard({
               );
             })}
 
-            {data.bouldering.map((item) => (
+            {data.bouldering.slice(0, 40).map((item) => (
               <div key={`boulder-${item.id}`} className="session-item">
                 <div className="session-main">
                   <div className="session-header">
@@ -304,7 +366,9 @@ export function FitnessDashboard({
                     <span className="session-title">
                       Grad {item.grade} ({item.style}) @ {item.location}
                     </span>
-                    <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                    <span
+                      style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}
+                    >
                       {item.sessionDate}
                     </span>
                   </div>
@@ -362,6 +426,14 @@ export function FitnessDashboard({
             setData(newData);
           }}
           onError={(msg) => setErrorMsg(msg)}
+        />
+      )}
+
+      {/* POPUP 4: Mobile PWA, Server & Signal Messenger Modal */}
+      {isMobileSignalModalOpen && (
+        <MobileAndSignalModal
+          briefing={coachBriefing}
+          onClose={() => setIsMobileSignalModalOpen(false)}
         />
       )}
     </div>

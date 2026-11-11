@@ -48,6 +48,33 @@ export const workoutTemplateInputSchema = z
   })
   .strict();
 
+export const supplementTimings = [
+  "Morgens",
+  "Pre-Gym",
+  "Post-Gym",
+  "Abends",
+] as const;
+
+export const supplementItemInputSchema = z
+  .object({
+    name: z.string().trim().min(2).max(60),
+    dosage: z.string().trim().min(1).max(30),
+    timing: z.enum(supplementTimings),
+    color: z
+      .string()
+      .regex(/^#[0-9a-fA-F]{6}$/)
+      .optional()
+      .default("#cba6f7"),
+  })
+  .strict();
+
+export const supplementToggleInputSchema = z
+  .object({
+    supplementId: z.coerce.number().int().positive(),
+    logDate: dateStringSchema,
+  })
+  .strict();
+
 export const cardioModalities = SPORT_IDS;
 
 export const cardioSessionInputSchema = z
@@ -125,14 +152,25 @@ export const boulderingSessionInputSchema = z
 
 export const deleteEntryInputSchema = z
   .object({
-    category: z.enum(["gym", "cardio", "bouldering", "template"]),
+    category: z.enum(["gym", "cardio", "bouldering", "template", "supplement"]),
     id: z.coerce.number().int().positive(),
   })
   .strict();
 
-/**
- * Strava Activity Schema (validates incoming Strava API v3 `/athlete/activities` items or Hevy/Strava JSON exports)
- */
+export const signalNotifyRequestSchema = z
+  .object({
+    mode: z.enum(["signal_cli", "callmebot"]),
+    recipientPhone: z
+      .string()
+      .trim()
+      .regex(/^\+?[0-9]{7,16}$/, "Bitte gültige Telefonnummer im Format +49... angeben"),
+    senderPhone: z.string().trim().max(20).optional(),
+    endpointUrl: z.string().trim().max(200).optional(),
+    apiKey: z.string().trim().max(64).optional(),
+    message: z.string().trim().min(2).max(1000),
+  })
+  .strict();
+
 export const stravaActivityItemSchema = z.object({
   id: z.number().optional(),
   name: z.string().trim().max(160).default("Strava Activity"),
@@ -180,8 +218,13 @@ export const stravaSyncRequestSchema = z.discriminatedUnion("mode", [
   z
     .object({
       mode: z.literal("free_import"),
-      format: z.enum(["hevy_csv", "strava_csv", "strava_copy_paste", "hevy_text"]),
-      rawContent: z.string().trim().min(5).max(500000),
+      format: z.enum([
+        "hevy_csv",
+        "strava_csv",
+        "strava_copy_paste",
+        "hevy_text",
+      ]),
+      rawContent: z.string().trim().min(5).max(1000000),
     })
     .strict(),
   z
@@ -194,6 +237,8 @@ export const stravaSyncRequestSchema = z.discriminatedUnion("mode", [
 
 export type GymEntryInput = z.infer<typeof gymEntryInputSchema>;
 export type WorkoutTemplateInput = z.infer<typeof workoutTemplateInputSchema>;
+export type SupplementItemInput = z.infer<typeof supplementItemInputSchema>;
+export type SupplementToggleInput = z.infer<typeof supplementToggleInputSchema>;
 export type CardioSessionInput = z.infer<typeof cardioSessionInputSchema>;
 export type BoulderingSessionInput = z.infer<
   typeof boulderingSessionInputSchema

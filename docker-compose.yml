@@ -1,0 +1,30 @@
+services:
+  schym:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: schym-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_TELEMETRY_DISABLED=1
+      - SIGNAL_CLI_URL=http://signal-cli:8080/v2/send
+    volumes:
+      - ./data:/app/data
+    security_opt:
+      - no-new-privileges:true
+
+  signal-cli:
+    image: bbernhard/signal-cli-rest-api:latest
+    container_name: schym-signal-cli
+    restart: unless-stopped
+    environment:
+      - MODE=normal
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./data/signal-cli-config:/home/.local/share/signal-cli
+    security_opt:
+      - no-new-privileges:true

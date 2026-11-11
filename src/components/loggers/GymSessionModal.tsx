@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Dumbbell,
   Play,
@@ -10,6 +10,8 @@ import {
   X,
   Check,
   TrendingUp,
+  Timer,
+  Trophy,
 } from "lucide-react";
 import type {
   GymEntry,
@@ -22,6 +24,7 @@ import {
   computeOverloadSuggestion,
   inferMuscleGroupFromExercise,
 } from "@/lib/muscles";
+import { calculateEstimated1Rm } from "@/lib/metrics";
 
 interface GymSessionModalProps {
   templates: WorkoutTemplate[];
@@ -55,12 +58,45 @@ export function GymSessionModal({
       weightKg: string;
       rpe: string;
       logged: boolean;
+      isNewPr: boolean;
       coachHint: string;
       shouldIncrease: boolean;
     }>
   >([]);
 
-  // Builder state (starts 100% empty as requested!)
+  // Live Rest-Timer State (in seconds)
+  const [restDurationPref, setRestDurationPref] = useState<number>(90);
+  const [restSecondsLeft, setRestSecondsLeft] = useState<number>(0);
+
+  useEffect(() => {
+    if (restSecondsLeft <= 0) return;
+    const interval = setInterval(() => {
+      setRestSecondsLeft((prev) => {
+        if (prev <= 1) {
+          // Play subtle Web Audio chime when rest timer finishes
+          try {
+            const ctx = new AudioContext();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = "sine";
+            osc.frequency.value = 660;
+            gain.gain.value = 0.08;
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start();
+            osc.stop(ctx.currentTime + 0.25);
+          } catch {
+            // AudioContext may be blocked
+          }
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [restSecondsLeft]);
+
+  // Builder state
   const [newPlanName, setNewPlanName] = useState("");
   const [draftExercises, setDraftExercises] = useState<
     WorkoutTemplateExercise[]
@@ -74,6 +110,21 @@ export function GymSessionModal({
   // Quick add single machine inside active workout
   const [quickMachineName, setQuickMachineName] = useState("");
   const [quickMuscle, setQuickMuscle] = useState<MuscleGroup>("chest");
+
+  function checkIsPersonalRecord(
+    exerciseName: string,
+    weightKg: number,
+    reps: number
+  ): boolean {
+    const norm = exerciseName.trim().toLowerCase();
+    const pastEntries = gymHistory.filter(
+      (h) => h.exerciseName.trim().toLowerCase() === norm
+    );
+    if (pastEntries.length === 0) return false;
+    const pastMax1Rm = Math.max(...pastEntries.map((h) => h.estimated1Rm));
+    const current1Rm = calculateEstimated1Rm(weightKg, reps);
+    return current1Rm > pastMax1Rm;
+  }
 
   function startFromTemplate(tpl: WorkoutTemplate) {
     setActiveWorkoutName(tpl.name);
@@ -92,6 +143,11 @@ export function GymSessionModal({
         weightKg: String(suggestion.suggestedWeightKg),
         rpe: "8",
         logged: false,
+        isNewPr: checkIsPersonalRecord(
+          ex.name,
+          suggestion.suggestedWeightKg,
+          suggestion.suggestedReps
+        ),
         coachHint: suggestion.reason,
         shouldIncrease: suggestion.shouldIncrease,
       };
@@ -124,6 +180,11 @@ export function GymSessionModal({
         weightKg: String(suggestion.suggestedWeightKg),
         rpe: "8",
         logged: false,
+        isNewPr: checkIsPersonalRecord(
+          quickMachineName.trim(),
+          suggestion.suggestedWeightKg,
+          suggestion.suggestedReps
+        ),
         coachHint: suggestion.reason,
         shouldIncrease: suggestion.shouldIncrease,
       },
@@ -134,21 +195,33 @@ export function GymSessionModal({
   async function logSingleMachine(idx: number) {
     const item = sessionExercises[idx];
     if (!item) return;
+    const w = Number(item.weightKg);
+    const r = Number(item.reps);
+    const isPr = checkIsPersonalRecord(item.name, w, r);
+
     const ok = await onSaveGymSet({
       sessionDate: todayIso,
       workoutFocus: activeWorkoutName,
       exerciseName: item.name,
       muscleGroup: item.muscleGroup,
       sets: Number(item.sets),
-      reps: Number(item.reps),
-      weightKg: Number(item.weightKg),
+      reps: r,
+      weightKg: w,
       rpe: Number(item.rpe),
-      notes: item.shouldIncrease ? "Progressive Overload +2.5kg" : "",
+      notes: isPr
+        ? "🏆 Neuer PR!"
+        : item.shouldIncrease
+        ? "Progressive Overload +2.5kg"
+        : "",
     });
     if (ok) {
       setSessionExercises((prev) =>
-        prev.map((row, i) => (i === idx ? { ...row, logged: true } : row))
+        prev.map((row, i) =>
+          i === idx ? { ...row, logged: true, isNewPr: isPr } : row
+        )
       );
+      // Automatically start rest timer!
+      setRestSecondsLeft(restDurationPref);
     }
   }
 
@@ -181,6 +254,12 @@ export function GymSessionModal({
     }
   }
 
+  const formatTimer = (sec: number) => {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m}:${String(s).padStart(2, "0")}`;
+  };
+
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true">
       <div className="modal-sheet">
@@ -192,7 +271,7 @@ export function GymSessionModal({
             alignItems: "center",
             paddingBottom: "1rem",
             borderBottom: "1px solid var(--border-subtle)",
-            marginBottom: "1.25rem",
+            marginBottom: "1.1rem",
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: "0.65rem" }}>
@@ -212,11 +291,11 @@ export function GymSessionModal({
             </div>
             <div>
               <h2 style={{ fontSize: "1.15rem", fontWeight: 800 }}>
-                Gym Live-Modus &amp; Smart Coach
+                Gym Live-Modus, Rest-Timer &amp; Smart Coach
               </h2>
               <p style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>
-                Wähle deinen Plan, baue eigene Maschinen-Pläne oder lass dir
-                Gewichts-Steigerungen vorschlagen
+                Starte deine gelernten Hevy-Pläne, tracke PRs &amp; nutze den
+                automatischen Satzpausen-Timer
               </p>
             </div>
           </div>
@@ -230,12 +309,93 @@ export function GymSessionModal({
           </button>
         </div>
 
+        {/* Live Rest-Timer Bar */}
+        <div
+          style={{
+            background:
+              restSecondsLeft > 0
+                ? "rgba(166, 227, 161, 0.14)"
+                : "var(--bg-soft)",
+            border:
+              restSecondsLeft > 0
+                ? "1px solid var(--pastel-mint)"
+                : "1px solid var(--border-subtle)",
+            borderRadius: 14,
+            padding: "0.65rem 1rem",
+            marginBottom: "1.1rem",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: "0.75rem",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "0.55rem" }}>
+            <Timer
+              size={18}
+              color={
+                restSecondsLeft > 0
+                  ? "var(--pastel-mint)"
+                  : "var(--text-secondary)"
+              }
+            />
+            <span style={{ fontSize: "0.84rem", fontWeight: 700 }}>
+              {restSecondsLeft > 0
+                ? `Satzpause läuft: ${formatTimer(restSecondsLeft)}`
+                : "Automatischer Pausen-Timer nach jedem Satz:"}
+            </span>
+          </div>
+
+          <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
+            {[60, 90, 120, 180].map((sec) => (
+              <button
+                key={sec}
+                type="button"
+                className={`pill-tab ${
+                  restDurationPref === sec ? "active" : ""
+                }`}
+                style={{ padding: "0.25rem 0.6rem", fontSize: "0.74rem" }}
+                onClick={() => {
+                  setRestDurationPref(sec);
+                  setRestSecondsLeft(sec);
+                }}
+              >
+                {sec}s
+              </button>
+            ))}
+            {restSecondsLeft > 0 && (
+              <>
+                <button
+                  type="button"
+                  className="pill-tab"
+                  style={{ padding: "0.25rem 0.6rem", fontSize: "0.74rem" }}
+                  onClick={() => setRestSecondsLeft((s) => s + 15)}
+                >
+                  +15s
+                </button>
+                <button
+                  type="button"
+                  className="pill-tab"
+                  style={{
+                    padding: "0.25rem 0.6rem",
+                    fontSize: "0.74rem",
+                    color: "var(--danger)",
+                  }}
+                  onClick={() => setRestSecondsLeft(0)}
+                >
+                  Skip
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+
         {/* Mode Switcher Pills */}
         <div
           style={{
             display: "flex",
             gap: "0.5rem",
-            marginBottom: "1.25rem",
+            marginBottom: "1.2rem",
             flexWrap: "wrap",
           }}
         >
@@ -264,7 +424,9 @@ export function GymSessionModal({
 
         {/* 1. CHOOSE SAVED WORKOUT TEMPLATE */}
         {mode === "choose" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.9rem" }}>
+          <div
+            style={{ display: "flex", flexDirection: "column", gap: "0.9rem" }}
+          >
             {templates.length === 0 ? (
               <div
                 style={{
@@ -285,9 +447,9 @@ export function GymSessionModal({
                     marginBottom: "1rem",
                   }}
                 >
-                  Du kannst dir jetzt in 30 Sekunden deinen eigenen Plan
-                  zusammenstellen oder deine Hevy-Workouts direkt über Strava
-                  importieren!
+                  Importiere einmalig deine kostenlose Hevy-CSV (unter „Strava
+                  &amp; Hevy Sync“) — dann sind alle deine Pläne sofort hier
+                  drin! Oder bau dir hier direkt deinen eigenen Plan:
                 </p>
                 <button
                   type="button"
@@ -341,7 +503,8 @@ export function GymSessionModal({
                             color: "var(--text-secondary)",
                           }}
                         >
-                          {ex.name} ({ex.targetSets}×{ex.targetReps})
+                          {ex.name} ({ex.targetSets}×{ex.targetReps} @{" "}
+                          {ex.defaultWeightKg}kg)
                         </span>
                       ))}
                     </div>
@@ -484,7 +647,13 @@ export function GymSessionModal({
             </div>
 
             {draftExercises.length > 0 && (
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem" }}>
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "0.45rem",
+                }}
+              >
                 <div style={{ fontSize: "0.8rem", fontWeight: 700 }}>
                   Übungen in diesem Plan ({draftExercises.length}):
                 </div>
@@ -535,7 +704,9 @@ export function GymSessionModal({
 
         {/* 3. ACTIVE LIVE GYM WORKOUT */}
         {mode === "active" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+          <div
+            style={{ display: "flex", flexDirection: "column", gap: "1rem" }}
+          >
             <div
               style={{
                 display: "flex",
@@ -557,7 +728,7 @@ export function GymSessionModal({
                   gap: 4,
                 }}
               >
-                <Sparkles size={14} /> Smart Overload Coach aktiv
+                <Sparkles size={14} /> Smart Overload &amp; PR-Erkennung aktiv
               </span>
             </div>
 
@@ -632,8 +803,33 @@ export function GymSessionModal({
                   }}
                 >
                   <div>
-                    <div style={{ fontWeight: 800, fontSize: "1rem" }}>
-                      {ex.name}
+                    <div
+                      style={{
+                        fontWeight: 800,
+                        fontSize: "1rem",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "0.5rem",
+                      }}
+                    >
+                      <span>{ex.name}</span>
+                      {ex.isNewPr && (
+                        <span
+                          style={{
+                            fontSize: "0.72rem",
+                            padding: "0.15rem 0.55rem",
+                            borderRadius: 999,
+                            background: "rgba(250, 179, 135, 0.2)",
+                            color: "var(--pastel-peach)",
+                            border: "1px solid rgba(250, 179, 135, 0.45)",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 4,
+                          }}
+                        >
+                          <Trophy size={12} /> Neuer PR!
+                        </span>
+                      )}
                     </div>
                     <div
                       style={{
@@ -662,7 +858,7 @@ export function GymSessionModal({
                         gap: 4,
                       }}
                     >
-                      <Check size={15} /> Geloggt!
+                      <Check size={15} /> Geloggt &amp; Pause gestartet!
                     </span>
                   )}
                 </div>
@@ -693,13 +889,24 @@ export function GymSessionModal({
                       max={100}
                       className="field-input"
                       value={ex.reps}
-                      onChange={(e) =>
+                      onChange={(e) => {
+                        const nextReps = e.target.value;
                         setSessionExercises((prev) =>
                           prev.map((r, i) =>
-                            i === idx ? { ...r, reps: e.target.value } : r
+                            i === idx
+                              ? {
+                                  ...r,
+                                  reps: nextReps,
+                                  isNewPr: checkIsPersonalRecord(
+                                    r.name,
+                                    Number(r.weightKg),
+                                    Number(nextReps)
+                                  ),
+                                }
+                              : r
                           )
-                        )
-                      }
+                        );
+                      }}
                     />
                   </label>
                   <label className="field-label">
@@ -711,13 +918,24 @@ export function GymSessionModal({
                       max={600}
                       className="field-input"
                       value={ex.weightKg}
-                      onChange={(e) =>
+                      onChange={(e) => {
+                        const nextW = e.target.value;
                         setSessionExercises((prev) =>
                           prev.map((r, i) =>
-                            i === idx ? { ...r, weightKg: e.target.value } : r
+                            i === idx
+                              ? {
+                                  ...r,
+                                  weightKg: nextW,
+                                  isNewPr: checkIsPersonalRecord(
+                                    r.name,
+                                    Number(nextW),
+                                    Number(r.reps)
+                                  ),
+                                }
+                              : r
                           )
-                        )
-                      }
+                        );
+                      }}
                     />
                   </label>
                 </div>
@@ -732,7 +950,11 @@ export function GymSessionModal({
                 >
                   <label
                     className="field-label"
-                    style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
                   >
                     <span>Anstrengung (RPE 1–10):</span>
                     <input
@@ -758,7 +980,9 @@ export function GymSessionModal({
                     className="pastel-btn btn-lavender"
                     onClick={() => logSingleMachine(idx)}
                   >
-                    {ex.logged ? "Nochmal speichern" : "Satz abhaken ✓"}
+                    {ex.logged
+                      ? "Nochmal speichern"
+                      : `Satz abhaken & ${restDurationPref}s Pause ✓`}
                   </button>
                 </div>
               </div>

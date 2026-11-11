@@ -5,6 +5,8 @@ import {
   insertCardioSession,
   insertBoulderingSession,
   insertWorkoutTemplate,
+  insertSupplementItem,
+  toggleSupplementLog,
   deleteFitnessEntry,
 } from "@/lib/db";
 import {
@@ -12,9 +14,12 @@ import {
   cardioSessionInputSchema,
   boulderingSessionInputSchema,
   workoutTemplateInputSchema,
+  supplementItemInputSchema,
+  supplementToggleInputSchema,
   deleteEntryInputSchema,
 } from "@/lib/validation/fitness";
 import { calculateEstimated1Rm } from "@/lib/metrics";
+import { verifyRequestSecurity } from "@/lib/security";
 import { z } from "zod";
 
 const createPayloadSchema = z.discriminatedUnion("type", [
@@ -34,9 +39,21 @@ const createPayloadSchema = z.discriminatedUnion("type", [
     type: z.literal("template"),
     payload: workoutTemplateInputSchema,
   }),
+  z.object({
+    type: z.literal("supplement_item"),
+    payload: supplementItemInputSchema,
+  }),
+  z.object({
+    type: z.literal("supplement_toggle"),
+    payload: supplementToggleInputSchema,
+  }),
 ]);
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const sec = verifyRequestSecurity(request);
+  if (!sec.allowed) {
+    return NextResponse.json({ ok: false, error: sec.reason }, { status: 403 });
+  }
   try {
     const data = getAllFitnessData();
     return NextResponse.json({ ok: true, data }, { status: 200 });
@@ -50,6 +67,10 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const sec = verifyRequestSecurity(request);
+  if (!sec.allowed) {
+    return NextResponse.json({ ok: false, error: sec.reason }, { status: 403 });
+  }
   try {
     const rawBody: unknown = await request.json();
     const parsed = createPayloadSchema.safeParse(rawBody);
@@ -112,6 +133,15 @@ export async function POST(request: NextRequest) {
         name: payload.name,
         exercises: payload.exercises,
       });
+    } else if (type === "supplement_item") {
+      insertSupplementItem({
+        name: payload.name,
+        dosage: payload.dosage,
+        timing: payload.timing,
+        color: payload.color,
+      });
+    } else if (type === "supplement_toggle") {
+      toggleSupplementLog(payload.supplementId, payload.logDate);
     }
 
     const updatedData = getAllFitnessData();
@@ -126,6 +156,10 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
+  const sec = verifyRequestSecurity(request);
+  if (!sec.allowed) {
+    return NextResponse.json({ ok: false, error: sec.reason }, { status: 403 });
+  }
   try {
     const rawBody: unknown = await request.json();
     const parsed = deleteEntryInputSchema.safeParse(rawBody);
