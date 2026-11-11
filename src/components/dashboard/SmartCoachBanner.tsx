@@ -14,7 +14,11 @@ import {
   CalendarClock,
   TrendingUp,
 } from "lucide-react";
-import type { AthleteProfile, DailyCoachBriefing } from "@/lib/coach";
+import type {
+  AthleteProfile,
+  DailyCoachBriefing,
+  ScienceCategory,
+} from "@/lib/coach";
 
 export type CoachDrawerMode = "none" | "habits" | "science";
 
@@ -43,6 +47,9 @@ export function SmartCoachBanner({
 }: SmartCoachBannerProps) {
   const [notifStatus, setNotifStatus] = useState<string | null>(null);
   const [upgradeDone, setUpgradeDone] = useState(false);
+  const [scienceFilter, setScienceFilter] = useState<"all" | ScienceCategory>(
+    "all"
+  );
 
   // Default selected day in the 7-day future planner: pick the first upcoming Gym day (or Today if none)
   const firstUpcomingGymIdx = Math.max(
@@ -262,14 +269,31 @@ export function SmartCoachBanner({
           >
             <CalendarClock size={15} />
             <span>
-              Dein 7-Tage Zukunfts-Fahrplan (Klicke auf einen Tag für deine
-              Ziel-Gewichte):
+              Dein 7-Tage Hybrid-Fahrplan (Kraft + Zone-2/VO2max Cardio +
+              Regeneration):
             </span>
           </div>
-          <span style={{ fontSize: "0.73rem", color: "var(--text-secondary)" }}>
-            Automatisch geplant aus Regeneration (48–72h) &amp; deinen
-            Stamm-Tagen
-          </span>
+          <button
+            type="button"
+            className={`pill-tab ${openDrawer === "science" ? "active" : ""}`}
+            style={{
+              fontSize: "0.73rem",
+              padding: "0.28rem 0.7rem",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 5,
+            }}
+            onClick={() =>
+              onChangeDrawer(openDrawer === "science" ? "none" : "science")
+            }
+          >
+            <FlaskConical size={13} />
+            <span>
+              {openDrawer === "science"
+                ? "Studien-Labor schließen ▲"
+                : `🧬 Hybrid- & Studien-Wissen (${briefing.scienceInsights.length} Meta-Analysen) ▼`}
+            </span>
+          </button>
         </div>
 
         {/* 7-Day Horizontal Timeline Strip */}
@@ -640,99 +664,166 @@ export function SmartCoachBanner({
             </span>
           </div>
 
-          {/* Athlete Profile Bar */}
+          {/* Athlete Profile + Personalized Hybrid Heart-Rate & Nutrition Bar */}
           <div
             style={{
               background: "var(--bg-soft)",
-              padding: "0.85rem 1rem",
+              padding: "0.9rem 1rem",
               borderRadius: 14,
               border: "1px solid var(--border-subtle)",
               display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              flexWrap: "wrap",
-              gap: "0.75rem",
+              flexDirection: "column",
+              gap: "0.7rem",
             }}
           >
             <div
               style={{
                 display: "flex",
+                justifyContent: "space-between",
                 alignItems: "center",
-                gap: "0.5rem",
-                fontSize: "0.82rem",
-                fontWeight: 800,
+                flexWrap: "wrap",
+                gap: "0.75rem",
               }}
             >
-              <UserCheck size={16} color="var(--pastel-mint)" />
-              <span>Dein Athleten-Profil (für Studien-Formeln):</span>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.5rem",
+                  fontSize: "0.82rem",
+                  fontWeight: 800,
+                }}
+              >
+                <UserCheck size={16} color="var(--pastel-mint)" />
+                <span>
+                  Dein Hybrid-Athleten-Profil (berechnet Puls-Zonen &amp;
+                  Makros):
+                </span>
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: "0.6rem",
+                  alignItems: "center",
+                }}
+              >
+                <label
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    fontSize: "0.76rem",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  <span>Gewicht (kg):</span>
+                  <input
+                    type="number"
+                    min={40}
+                    max={180}
+                    className="field-input"
+                    style={{ width: 66, padding: "0.3rem 0.5rem" }}
+                    value={profile.weightKg}
+                    onChange={(e) =>
+                      onUpdateProfile({
+                        ...profile,
+                        weightKg: Number(e.target.value) || 78,
+                      })
+                    }
+                  />
+                </label>
+
+                <label
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    fontSize: "0.76rem",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  <span>Größe (cm):</span>
+                  <input
+                    type="number"
+                    min={140}
+                    max={220}
+                    className="field-input"
+                    style={{ width: 70, padding: "0.3rem 0.5rem" }}
+                    value={profile.heightCm}
+                    onChange={(e) =>
+                      onUpdateProfile({
+                        ...profile,
+                        heightCm: Number(e.target.value) || 180,
+                      })
+                    }
+                  />
+                </label>
+
+                <label
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    fontSize: "0.76rem",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  <span>Alter (J.):</span>
+                  <input
+                    type="number"
+                    min={14}
+                    max={90}
+                    className="field-input"
+                    style={{ width: 62, padding: "0.3rem 0.5rem" }}
+                    value={profile.age}
+                    onChange={(e) =>
+                      onUpdateProfile({
+                        ...profile,
+                        age: Number(e.target.value) || 24,
+                      })
+                    }
+                  />
+                </label>
+              </div>
             </div>
 
             <div
               style={{
                 display: "flex",
                 flexWrap: "wrap",
-                gap: "0.6rem",
-                alignItems: "center",
+                gap: "0.45rem",
+                paddingTop: "0.5rem",
+                borderTop: "1px solid var(--border-subtle)",
               }}
             >
-              <label
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
-                  fontSize: "0.76rem",
-                  color: "var(--text-secondary)",
-                }}
-              >
-                <span>Gewicht (kg):</span>
-                <input
-                  type="number"
-                  min={40}
-                  max={180}
-                  className="field-input"
-                  style={{ width: 68, padding: "0.3rem 0.5rem" }}
-                  value={profile.weightKg}
-                  onChange={(e) =>
-                    onUpdateProfile({
-                      ...profile,
-                      weightKg: Number(e.target.value) || 75,
-                    })
-                  }
-                />
-              </label>
-
-              <label
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
-                  fontSize: "0.76rem",
-                  color: "var(--text-secondary)",
-                }}
-              >
-                <span>Größe (cm):</span>
-                <input
-                  type="number"
-                  min={140}
-                  max={220}
-                  className="field-input"
-                  style={{ width: 72, padding: "0.3rem 0.5rem" }}
-                  value={profile.heightCm}
-                  onChange={(e) =>
-                    onUpdateProfile({
-                      ...profile,
-                      heightCm: Number(e.target.value) || 180,
-                    })
-                  }
-                />
-              </label>
-
               <span
                 className="badge badge-cardio"
-                style={{ fontSize: "0.73rem" }}
+                style={{ fontSize: "0.72rem" }}
               >
-                Protein-Ziel: {Math.round(profile.weightKg * 1.8)} g/Tag •
-                Kreatin: {Math.max(3, Math.round(profile.weightKg * 0.05))} g/Tag
+                🏃 Zone-2 Basis-Puls (65–75%):{" "}
+                <strong>
+                  {briefing.hrZones.zone2Min}–{briefing.hrZones.zone2Max} bpm
+                </strong>
+              </span>
+              <span
+                className="badge badge-gym"
+                style={{ fontSize: "0.72rem" }}
+              >
+                ⚡ VO2max 4×4 Puls (90–95%):{" "}
+                <strong>
+                  {briefing.hrZones.vo2MaxMin}–{briefing.hrZones.vo2MaxMax} bpm
+                </strong>{" "}
+                (Max: {briefing.hrZones.hrMax})
+              </span>
+              <span
+                className="badge badge-boulder"
+                style={{ fontSize: "0.72rem" }}
+              >
+                🥩 Protein: <strong>{Math.round(profile.weightKg * 1.8)} g/Tag</strong>{" "}
+                • Kreatin:{" "}
+                <strong>{Math.max(3, Math.round(profile.weightKg * 0.05))} g/Tag</strong>
               </span>
             </div>
           </div>
@@ -823,66 +914,116 @@ export function SmartCoachBanner({
             </div>
           </div>
 
+          {/* Category Filter Pills for the Omniscient Study Knowledge Base */}
+          <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+            {[
+              { id: "all", label: `Alle Studien (${briefing.scienceInsights.length})` },
+              { id: "hypertrophy", label: "💪 Kraft & Hypertrophie" },
+              { id: "hybrid_cardio", label: "🏃⚡ Hybrid: Cardio & Kraft" },
+              { id: "bouldering_tendons", label: "🧗 Bouldern & Sehnen" },
+              { id: "nutrition_recovery", label: "🥩💤 Ernährung & Schlaf" },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                className={`pill-tab ${scienceFilter === tab.id ? "active" : ""}`}
+                style={{ fontSize: "0.74rem", padding: "0.32rem 0.7rem" }}
+                onClick={() =>
+                  setScienceFilter(tab.id as "all" | ScienceCategory)
+                }
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
           {/* Peer-Reviewed Study Insights Grid */}
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+              gridTemplateColumns: "repeat(auto-fit, minmax(265px, 1fr))",
               gap: "0.75rem",
             }}
           >
-            {briefing.scienceInsights.map((ins) => (
-              <div
-                key={ins.id}
-                style={{
-                  background: "var(--bg-soft)",
-                  padding: "0.9rem 1rem",
-                  borderRadius: 14,
-                  border: `1px solid ${ins.badgeColor}44`,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "0.4rem",
-                }}
-              >
+            {briefing.scienceInsights
+              .filter(
+                (ins) =>
+                  scienceFilter === "all" || ins.category === scienceFilter
+              )
+              .map((ins) => (
                 <div
+                  key={ins.id}
                   style={{
-                    fontSize: "0.84rem",
-                    fontWeight: 800,
-                    color: ins.badgeColor,
+                    background: "var(--bg-soft)",
+                    padding: "0.9rem 1rem",
+                    borderRadius: 14,
+                    border: `1px solid ${ins.badgeColor}44`,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "0.4rem",
                   }}
                 >
-                  {ins.title}
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: 6,
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: "0.66rem",
+                        fontWeight: 800,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.05em",
+                        color: ins.badgeColor,
+                        opacity: 0.9,
+                      }}
+                    >
+                      {ins.categoryLabel}
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "0.84rem",
+                      fontWeight: 800,
+                      color: ins.badgeColor,
+                    }}
+                  >
+                    {ins.title}
+                  </div>
+                  <p
+                    style={{
+                      fontSize: "0.78rem",
+                      color: "var(--text-secondary)",
+                      margin: 0,
+                    }}
+                  >
+                    <strong>Wissenschaft &amp; Analyse:</strong> {ins.finding}
+                  </p>
+                  <p
+                    style={{
+                      fontSize: "0.78rem",
+                      color: "var(--text-primary)",
+                      margin: 0,
+                    }}
+                  >
+                    <strong>Konkrete Umsetzung für dich:</strong>{" "}
+                    {ins.recommendation}
+                  </p>
+                  <span
+                    style={{
+                      fontSize: "0.69rem",
+                      color: "var(--text-muted)",
+                      fontStyle: "italic",
+                      marginTop: "auto",
+                    }}
+                  >
+                    📚 Studie: {ins.citation}
+                  </span>
                 </div>
-                <p
-                  style={{
-                    fontSize: "0.78rem",
-                    color: "var(--text-secondary)",
-                    margin: 0,
-                  }}
-                >
-                  <strong>Analyse deiner Daten:</strong> {ins.finding}
-                </p>
-                <p
-                  style={{
-                    fontSize: "0.78rem",
-                    color: "var(--text-primary)",
-                    margin: 0,
-                  }}
-                >
-                  <strong>Plan-Empfehlung:</strong> {ins.recommendation}
-                </p>
-                <span
-                  style={{
-                    fontSize: "0.69rem",
-                    color: "var(--text-muted)",
-                    fontStyle: "italic",
-                    marginTop: "auto",
-                  }}
-                >
-                  📚 Studie: {ins.citation}
-                </span>
-              </div>
-            ))}
+              ))}
           </div>
 
           {/* 1-Click Science Plan Upgrade */}
