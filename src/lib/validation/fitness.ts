@@ -170,6 +170,22 @@ export const stravaSyncRequestSchema = z.discriminatedUnion("mode", [
     .strict(),
   z
     .object({
+      mode: z.literal("oauth_code"),
+      clientId: z.string().trim().min(2).max(64),
+      clientSecret: z.string().trim().min(10).max(256),
+      code: z.string().trim().min(5).max(512),
+      perPage: z.coerce.number().int().min(1).max(100).optional().default(50),
+    })
+    .strict(),
+  z
+    .object({
+      mode: z.literal("free_import"),
+      format: z.enum(["hevy_csv", "strava_csv", "strava_copy_paste", "hevy_text"]),
+      rawContent: z.string().trim().min(5).max(500000),
+    })
+    .strict(),
+  z
+    .object({
       mode: z.literal("json"),
       activities: z.array(stravaActivityItemSchema).min(1).max(200),
     })

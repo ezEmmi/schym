@@ -23,6 +23,11 @@ import {
   computeOverloadSuggestion,
   parseHevyDescriptionFromStrava,
 } from "../muscles";
+import {
+  parseHevyCsv,
+  parseStravaActivitiesCsv,
+  parseStravaWebTableText,
+} from "../importers";
 
 describe("Fitness Input Validation & Security Guards", () => {
   it("validates a well-formed gym entry and rejects prototype/unknown keys (.strict)", () => {
@@ -160,6 +165,27 @@ describe("Smart Progressive Overload, Muscle Inference & Hevy Parser", () => {
     expect(parsed[0]?.name).toBe("Bench Press (Machine)");
     expect(parsed[0]?.defaultWeightKg).toBe(75);
     expect(parsed[1]?.muscleGroup).toBe("back");
+  });
+
+  it("parses free Hevy CSV exports, Strava CSV exports, and Strava Web Copy-Paste tables without Pro subscription", () => {
+    const hevyCsv = `"title","start_time","exercise_title","weight_kg","reps","rpe"\n"Push Tag A","2026-11-10 18:00","Bench Press",80,8,8\n"Push Tag A","2026-11-10 18:00","Bench Press",82.5,8,8.5`;
+    const hevyRes = parseHevyCsv(hevyCsv);
+    expect(hevyRes.gymEntries.length).toBe(1);
+    expect(hevyRes.gymEntries[0]?.sets).toBe(2);
+    expect(hevyRes.gymEntries[0]?.weightKg).toBe(82.5);
+    expect(hevyRes.templates.length).toBe(1);
+
+    const stravaCsv = `Activity Date,Activity Name,Activity Type,Moving Time,Distance,Average Heart Rate\n"2026-11-11","Abendlauf","Run",2400,7500,152`;
+    const stravaRes = parseStravaActivitiesCsv(stravaCsv);
+    expect(stravaRes.cardioSessions.length).toBe(1);
+    expect(stravaRes.cardioSessions[0]?.distanceKm).toBe(7.5);
+    expect(stravaRes.cardioSessions[0]?.durationMinutes).toBe(40);
+
+    const copyPaste = `Lauf\t10.11.2026\tFeierabendrunde\t38:15\t7,25 km`;
+    const pasteRes = parseStravaWebTableText(copyPaste);
+    expect(pasteRes.cardioSessions.length).toBe(1);
+    expect(pasteRes.cardioSessions[0]?.sessionDate).toBe("2026-11-10");
+    expect(pasteRes.cardioSessions[0]?.distanceKm).toBe(7.25);
   });
 });
 

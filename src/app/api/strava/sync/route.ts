@@ -12,6 +12,11 @@ import {
 } from "@/lib/validation/fitness";
 import { mapStravaSportToSchym } from "@/lib/sports-catalog";
 import { parseHevyDescriptionFromStrava } from "@/lib/muscles";
+import {
+  parseHevyCsv,
+  parseStravaActivitiesCsv,
+  parseStravaWebTableText,
+} from "@/lib/importers";
 import { calculateEstimated1Rm } from "@/lib/metrics";
 import { z } from "zod";
 
@@ -24,7 +29,6 @@ function importValidatedStravaActivities(
     const rawSport = act.sport_type ?? act.type ?? "Run";
     const sessionDate = act.start_date_local.slice(0, 10);
 
-    // Check if this is a WeightTraining / Hevy Gym workout with exercise breakdown in `description`
     const hevyExercises = act.description
       ? parseHevyDescriptionFromStrava(act.description)
       : [];
@@ -34,7 +38,6 @@ function importValidatedStravaActivities(
       rawSport.toLowerCase() === "weighttraining"
     ) {
       if (hevyExercises.length > 0) {
-        // Save as reusable Workout Template AND log each exercise into gym_entries + muscle map!
         insertWorkoutTemplate({
           name: `${act.name} (Hevy/Strava)`,
           exercises: hevyExercises,
@@ -108,7 +111,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           ok: false,
-          error: "Invalid Strava sync request",
+          error: "Ungültige Import-Daten",
           issues: parsed.error.issues.map((i) => ({
             path: i.path.join("."),
             message: i.message,
@@ -118,6 +121,80 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 1. 100% Free CSV / Copy-Paste Importers (Zero Pro subscription needed!)
+    if (parsed.data.mode === "free_import") {
+      const { format, rawContent } = parsed.data;
+      let importedCount = 0;
+
+      if (format === "hevy_csv") {
+        const res = parseHevyCsv(rawContent);
+        for (const tpl of res.templates) {
+          insertWorkoutTemplate(tpl);
+        }
+        for (const entry of res.gymEntries) {
+          insertGymEntry(entry);
+          importedCount += 1;
+        }
+      } else if (format === "strava_csv") {
+        const res = parseStravaActivitiesCsv(rawContent);
+        for (const c of res.cardioSessions) {
+          insertCardioSession(c);
+          importedCount += 1;
+        }
+      } else if (format === "strava_copy_paste") {
+        const res = parseStravaWebTableText(rawContent);
+        for (const c of res.cardioSessions) {
+          insertCardioSession(c);
+          importedCount += 1;
+        }
+      } else if (format === "hevy_text") {
+        const exercises = parseHevyDescriptionFromStrava(rawContent);
+        if (exercises.length > 0) {
+          const today = new Date().toISOString().slice(0, 10);
+          insertWorkoutTemplate({
+            name: "Hevy Text-Import Plan",
+            exercises,
+          });
+          for (const ex of exercises) {
+            insertGymEntry({
+              sessionDate: today,
+              workoutFocus: "Hevy Share-Text",
+              exerciseName: ex.name,
+              muscleGroup: ex.muscleGroup,
+              sets: ex.targetSets,
+              reps: ex.targetReps,
+              weightKg: ex.defaultWeightKg,
+              rpe: 8,
+              estimated1Rm: calculateEstimated1Rm(
+                ex.defaultWeightKg,
+                ex.targetReps
+              ),
+              notes: "Aus Hevy Share-Text importiert",
+            });
+            importedCount += 1;
+          }
+        }
+      }
+
+      if (importedCount === 0) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error:
+              "Keine passenden Aktivitäten im Text/CSV erkannt. Prüfe, ob du das richtige Format ausgewählt hast.",
+          },
+          { status: 400 }
+        );
+      }
+
+      const data = getAllFitnessData();
+      return NextResponse.json(
+        { ok: true, importedCount, data },
+        { status: 200 }
+      );
+    }
+
+    // 2. JSON Mode
     if (parsed.data.mode === "json") {
       const importedCount = importValidatedStravaActivities(
         parsed.data.activities
@@ -129,10 +206,34 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 3. Free Strava OAuth Code / Refresh / Token Modes
     let activeToken = "";
     const perPage = parsed.data.perPage;
 
-    if (parsed.data.mode === "refresh") {
+    if (parsed.data.mode === "oauth_code") {
+      const tokenRes = await fetch("https://www.strava.com/oauth/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_id: parsed.data.clientId,
+          client_secret: parsed.data.clientSecret,
+          code: parsed.data.code,
+          grant_type: "authorization_code",
+        }),
+      });
+
+      if (!tokenRes.ok) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: `Strava Code-Austausch fehlgeschlagen (HTTP ${tokenRes.status}).`,
+          },
+          { status: 400 }
+        );
+      }
+      const tokenJson = (await tokenRes.json()) as { access_token?: string };
+      activeToken = tokenJson.access_token ?? "";
+    } else if (parsed.data.mode === "refresh") {
       const tokenRes = await fetch("https://www.strava.com/oauth/token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -148,23 +249,14 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(
           {
             ok: false,
-            error: `Strava OAuth Refresh fehlgeschlagen (HTTP ${tokenRes.status}). Bitte prüfe Client ID, Client Secret und Refresh Token.`,
+            error: `Strava OAuth Refresh fehlgeschlagen (HTTP ${tokenRes.status}).`,
           },
           { status: 400 }
         );
       }
 
       const tokenJson = (await tokenRes.json()) as { access_token?: string };
-      if (!tokenJson.access_token) {
-        return NextResponse.json(
-          {
-            ok: false,
-            error: "Strava hat keinen access_token zurückgegeben.",
-          },
-          { status: 400 }
-        );
-      }
-      activeToken = tokenJson.access_token;
+      activeToken = tokenJson.access_token ?? "";
     } else {
       activeToken = parsed.data.accessToken;
     }
@@ -184,7 +276,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           ok: false,
-          error: `Strava API returned HTTP ${response.status}. Verify your Access Token has 'activity:read' or 'activity:read_all' scope.`,
+          error: `Strava API HTTP ${response.status}. Tipp: Nutze den kostenlosen CSV- oder Copy-Paste-Import direkt daneben!`,
         },
         { status: 400 }
       );
@@ -199,7 +291,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           ok: false,
-          error: "Strava API payload did not match expected activity schema.",
+          error: "Strava API Antwort konnte nicht validiert werden.",
         },
         { status: 400 }
       );
@@ -215,7 +307,7 @@ export async function POST(request: NextRequest) {
   } catch (err) {
     console.error("Strava sync failed:", err);
     return NextResponse.json(
-      { ok: false, error: "Failed to sync Strava activities." },
+      { ok: false, error: "Import fehlgeschlagen." },
       { status: 500 }
     );
   }
