@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Pill, Check, Plus, Trash2 } from "lucide-react";
+import { Pill, Check, Plus, Trash2, ChevronDown, ChevronUp } from "lucide-react";
 import type {
   SupplementItem,
   SupplementLog,
@@ -34,7 +34,7 @@ export function SupplementTracker({
   onAddSupplement,
   onDeleteSupplement,
 }: SupplementTrackerProps) {
-  const [showAddForm, setShowAddForm] = useState(false);
+  const [showManage, setShowManage] = useState(false);
   const [name, setName] = useState("");
   const [dosage, setDosage] = useState("5g");
   const [timing, setTiming] = useState<SupplementTiming>("Morgens");
@@ -51,142 +51,125 @@ export function SupplementTracker({
     <section
       className="panel-card"
       style={{
-        marginBottom: "1.4rem",
+        marginBottom: "1.1rem",
+        padding: "0.75rem 1.1rem",
         display: "flex",
         flexDirection: "column",
-        gap: "0.95rem",
+        gap: "0.75rem",
       }}
     >
+      {/* Compact Single Row */}
       <div
         style={{
           display: "flex",
-          justifyContent: "space-between",
           alignItems: "center",
+          justifyContent: "space-between",
           flexWrap: "wrap",
-          gap: "0.75rem",
+          gap: "0.6rem",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-          <Pill size={19} color="var(--pastel-sky)" />
-          <div>
-            <h2 className="panel-title" style={{ margin: 0 }}>
-              Daily Supplement-Tracker ({takenCount} / {supplements.length}{" "}
-              heute genommen)
-            </h2>
-            <p
-              style={{
-                fontSize: "0.78rem",
-                color: "var(--text-secondary)",
-                marginTop: 1,
-              }}
-            >
-              1-Klick Abhaken für heute ({todayIso}) — der Smart Coach erinnert
-              dich an offene Supplements
-            </p>
-          </div>
+        <div
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "0.45rem",
+            fontSize: "0.84rem",
+            fontWeight: 800,
+          }}
+        >
+          <Pill size={16} color="var(--pastel-sky)" />
+          <span>
+            Supplements ({takenCount}/{supplements.length})
+          </span>
+        </div>
+
+        {/* Inline 1-Click Pills */}
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "0.4rem",
+            flex: 1,
+            justifyContent: "flex-start",
+          }}
+        >
+          {supplements.map((supp) => {
+            const isTaken = takenTodaySet.has(supp.id);
+            return (
+              <div
+                key={supp.id}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                  padding: "0.28rem 0.65rem",
+                  borderRadius: 999,
+                  background: isTaken
+                    ? "rgba(166, 227, 161, 0.16)"
+                    : "var(--bg-soft)",
+                  border: isTaken
+                    ? "1px solid var(--pastel-mint)"
+                    : "1px solid var(--border-subtle)",
+                  fontSize: "0.76rem",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => onToggleSupplement(supp.id)}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 5,
+                    background: "transparent",
+                    border: "none",
+                    color: isTaken ? "var(--pastel-mint)" : "var(--text-primary)",
+                    cursor: "pointer",
+                    fontWeight: isTaken ? 800 : 600,
+                    fontSize: "0.76rem",
+                  }}
+                >
+                  {isTaken && <Check size={12} strokeWidth={3} />}
+                  <span>{supp.name}</span>
+                  <span style={{ color: "var(--text-muted)", fontWeight: 500 }}>
+                    ({supp.dosage})
+                  </span>
+                </button>
+                {showManage && (
+                  <button
+                    type="button"
+                    onClick={() => onDeleteSupplement(supp.id)}
+                    className="delete-btn"
+                    style={{ padding: 2 }}
+                    title="Löschen"
+                  >
+                    <Trash2 size={11} />
+                  </button>
+                )}
+              </div>
+            );
+          })}
         </div>
 
         <button
           type="button"
           className="pill-tab"
-          onClick={() => setShowAddForm(!showAddForm)}
+          style={{
+            padding: "0.3rem 0.65rem",
+            fontSize: "0.74rem",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
+          }}
+          onClick={() => setShowManage((v) => !v)}
         >
-          <Plus size={14} style={{ display: "inline", marginRight: 4 }} />
-          {showAddForm ? "Schließen" : "Eigenes Supplement +"}
+          <Plus size={12} />
+          <span>Anpassen</span>
+          {showManage ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
         </button>
       </div>
 
-      {/* Clickable Supplement Pills */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.6rem" }}>
-        {supplements.map((supp) => {
-          const isTaken = takenTodaySet.has(supp.id);
-          return (
-            <div
-              key={supp.id}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "0.5rem",
-                padding: "0.48rem 0.85rem",
-                borderRadius: 14,
-                background: isTaken
-                  ? "rgba(166, 227, 161, 0.14)"
-                  : "var(--bg-soft)",
-                border: isTaken
-                  ? "1px solid var(--pastel-mint)"
-                  : "1px solid var(--border-subtle)",
-                transition: "all 0.14s ease",
-              }}
-            >
-              <button
-                type="button"
-                onClick={() => onToggleSupplement(supp.id)}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "0.5rem",
-                  background: "transparent",
-                  border: "none",
-                  color: "var(--text-primary)",
-                  cursor: "pointer",
-                  fontSize: "0.84rem",
-                  fontWeight: isTaken ? 800 : 600,
-                }}
-              >
-                <span
-                  style={{
-                    width: 20,
-                    height: 20,
-                    borderRadius: 6,
-                    background: isTaken
-                      ? "var(--pastel-mint)"
-                      : "rgba(255,255,255,0.08)",
-                    color: "#181926",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  {isTaken && <Check size={14} strokeWidth={3} />}
-                </span>
-                <span
-                  style={{
-                    textDecoration: isTaken ? "line-through" : "none",
-                    opacity: isTaken ? 0.88 : 1,
-                  }}
-                >
-                  {supp.name}
-                </span>
-                <span
-                  style={{
-                    fontSize: "0.73rem",
-                    padding: "0.1rem 0.45rem",
-                    borderRadius: 999,
-                    background: "rgba(255,255,255,0.06)",
-                    color: supp.color,
-                    fontWeight: 700,
-                  }}
-                >
-                  {supp.dosage} • {supp.timing}
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => onDeleteSupplement(supp.id)}
-                className="delete-btn"
-                style={{ padding: "0.15rem" }}
-                title="Supplement entfernen"
-              >
-                <Trash2 size={13} />
-              </button>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Add New Custom Supplement Form */}
-      {showAddForm && (
+      {/* Expandable Add Form */}
+      {showManage && (
         <form
           onSubmit={async (e) => {
             e.preventDefault();
@@ -202,44 +185,42 @@ export function SupplementTracker({
             });
             if (ok) {
               setName("");
-              setShowAddForm(false);
+              setShowManage(false);
             }
           }}
           style={{
             display: "flex",
             flexWrap: "wrap",
-            gap: "0.6rem",
+            gap: "0.5rem",
             alignItems: "flex-end",
-            background: "var(--bg-soft)",
-            padding: "0.85rem",
-            borderRadius: 14,
-            border: "1px solid var(--border-subtle)",
+            paddingTop: "0.65rem",
+            borderTop: "1px solid var(--border-subtle)",
           }}
         >
-          <label className="field-label" style={{ flex: 2, minWidth: 160 }}>
-            Supplement Name
+          <label className="field-label" style={{ flex: 2, minWidth: 150 }}>
+            Neues Supplement
             <input
               type="text"
               className="field-input"
-              placeholder="z.B. Ashwagandha, Zink, Citrullin..."
+              placeholder="z.B. Zink, Ashwagandha..."
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
             />
           </label>
-          <label className="field-label" style={{ flex: 1, minWidth: 110 }}>
-            Dosierung
+          <label className="field-label" style={{ flex: 1, minWidth: 100 }}>
+            Dosis
             <input
               type="text"
               className="field-input"
-              placeholder="z.B. 5g / 2 Kapseln"
+              placeholder="5g"
               value={dosage}
               onChange={(e) => setDosage(e.target.value)}
               required
             />
           </label>
-          <label className="field-label" style={{ flex: 1, minWidth: 120 }}>
-            Einnahmezeit
+          <label className="field-label" style={{ flex: 1, minWidth: 110 }}>
+            Timing
             <select
               className="field-select"
               value={timing}
@@ -252,8 +233,12 @@ export function SupplementTracker({
               ))}
             </select>
           </label>
-          <button type="submit" className="pastel-btn btn-lavender">
-            + Speichern
+          <button
+            type="submit"
+            className="pastel-btn btn-lavender"
+            style={{ padding: "0.55rem 0.9rem", fontSize: "0.8rem" }}
+          >
+            + Hinzufügen
           </button>
         </form>
       )}

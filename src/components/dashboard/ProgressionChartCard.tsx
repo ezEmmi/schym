@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { TrendingUp, Trophy } from "lucide-react";
+import { TrendingUp, Trophy, ChevronDown, ChevronUp } from "lucide-react";
 import type { GymEntry } from "@/lib/db/schema";
 
 interface ProgressionChartCardProps {
@@ -11,6 +11,8 @@ interface ProgressionChartCardProps {
 export function ProgressionChartCard({
   gymEntries,
 }: ProgressionChartCardProps) {
+  const [isOpen, setIsOpen] = useState(false);
+
   const uniqueExercises = Array.from(
     new Set(gymEntries.map((g) => g.exerciseName))
   );
@@ -38,9 +40,8 @@ export function ProgressionChartCard({
   const latestWeight = history[history.length - 1]?.weightKg ?? 0;
   const deltaKg = Math.round((latestWeight - firstWeight) * 10) / 10;
 
-  // Compute SVG polyline points
   const width = 560;
-  const height = 170;
+  const height = 165;
   const padX = 36;
   const padY = 26;
 
@@ -68,190 +69,203 @@ export function ProgressionChartCard({
     <section
       className="panel-card"
       style={{
-        marginTop: "1.35rem",
+        marginTop: "1rem",
+        padding: isOpen ? "1.15rem 1.25rem" : "0.85rem 1.25rem",
         display: "flex",
         flexDirection: "column",
-        gap: "1rem",
+        gap: "0.9rem",
       }}
     >
+      {/* Clickable Accordion Header */}
       <div
+        onClick={() => setIsOpen((v) => !v)}
         style={{
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
           flexWrap: "wrap",
           gap: "0.75rem",
+          cursor: "pointer",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: "0.55rem" }}>
-          <TrendingUp size={20} color="var(--pastel-mint)" />
-          <div>
-            <h2 className="panel-title" style={{ margin: 0 }}>
-              Kraft- &amp; Gewichts-Progression pro Maschine
-            </h2>
-            <p
-              style={{
-                fontSize: "0.78rem",
-                color: "var(--text-secondary)",
-                marginTop: 1,
-              }}
+        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+          <TrendingUp size={18} color="var(--pastel-mint)" />
+          <span style={{ fontWeight: 800, fontSize: "0.95rem" }}>
+            Kraft-Progression pro Maschine ({uniqueExercises.length} Maschinen)
+          </span>
+          {activeExercise && (
+            <span
+              className="badge badge-cardio"
+              style={{ fontSize: "0.73rem" }}
             >
-              Verfolge deinen Kraftanstieg aus deinen Hevy-Importen &amp; Live
-              Gym-Sessions
-            </p>
-          </div>
+              {activeExercise}: {latestWeight} kg (
+              {deltaKg >= 0 ? `+${deltaKg}` : deltaKg} kg)
+            </span>
+          )}
         </div>
 
-        {uniqueExercises.length > 0 && (
-          <select
-            className="field-select"
-            style={{ minWidth: 230 }}
-            value={activeExercise}
-            onChange={(e) => setSelectedExercise(e.target.value)}
-          >
-            {uniqueExercises.map((ex) => (
-              <option key={ex} value={ex}>
-                {ex}
-              </option>
-            ))}
-          </select>
-        )}
-      </div>
-
-      {history.length === 0 ? (
-        <div
+        <button
+          type="button"
+          className="pill-tab"
           style={{
-            padding: "1.5rem",
-            textAlign: "center",
-            background: "var(--bg-soft)",
-            borderRadius: 14,
-            color: "var(--text-secondary)",
-            fontSize: "0.84rem",
+            padding: "0.32rem 0.7rem",
+            fontSize: "0.75rem",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
           }}
         >
-          Sobald du deine Hevy-CSV importierst oder ein Gym-Workout loggst,
-          erscheint hier deine Kraft-Kurve für jede Maschine!
-        </div>
-      ) : (
-        <>
+          <span>{isOpen ? "Einklappen" : "Kurve anzeigen"}</span>
+          {isOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        </button>
+      </div>
+
+      {/* Unfolded Content */}
+      {isOpen && (
+        <div
+          style={{
+            paddingTop: "0.75rem",
+            borderTop: "1px solid var(--border-subtle)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "0.85rem",
+          }}
+        >
           <div
             style={{
               display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
               flexWrap: "wrap",
-              gap: "1.25rem",
-              fontSize: "0.83rem",
+              gap: "0.75rem",
             }}
           >
-            <div>
-              <span style={{ color: "var(--text-secondary)" }}>
-                Aktuelles Gewicht:{" "}
-              </span>
-              <strong style={{ color: "var(--pastel-lavender)" }}>
-                {latestWeight} kg
-              </strong>
-            </div>
-            <div>
-              <span style={{ color: "var(--text-secondary)" }}>
-                All-Time Rekord (PR):{" "}
-              </span>
-              <strong style={{ color: "var(--pastel-peach)" }}>
-                <Trophy
-                  size={13}
-                  style={{ display: "inline", marginRight: 3 }}
-                />
-                {maxWeight} kg (e1RM: {max1Rm} kg)
-              </strong>
-            </div>
-            <div>
-              <span style={{ color: "var(--text-secondary)" }}>
-                Steigerung seit Start:{" "}
-              </span>
-              <strong
-                style={{
-                  color:
-                    deltaKg >= 0 ? "var(--pastel-mint)" : "var(--text-secondary)",
-                }}
-              >
-                {deltaKg >= 0 ? `+${deltaKg} kg` : `${deltaKg} kg`}
-              </strong>
-            </div>
-          </div>
-
-          <div
-            style={{
-              background: "var(--bg-soft)",
-              borderRadius: 16,
-              padding: "0.85rem",
-              border: "1px solid var(--border-subtle)",
-            }}
-          >
-            <svg
-              viewBox={`0 0 ${width} ${height}`}
-              width="100%"
-              style={{ maxHeight: 190, overflow: "visible" }}
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "1.1rem",
+                fontSize: "0.82rem",
+              }}
             >
-              {/* Subtle horizontal grid lines */}
-              <line
-                x1={padX}
-                y1={padY}
-                x2={width - padX}
-                y2={padY}
-                stroke="rgba(255,255,255,0.06)"
-                strokeDasharray="4 4"
-              />
-              <line
-                x1={padX}
-                y1={height - padY}
-                x2={width - padX}
-                y2={height - padY}
-                stroke="rgba(255,255,255,0.08)"
-              />
-
-              {points.length > 1 && (
-                <polyline
-                  fill="none"
-                  stroke="#cba6f7"
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  points={polylineStr}
-                />
-              )}
-
-              {points.map((p, i) => (
-                <g key={i}>
-                  <circle
-                    cx={p.x}
-                    cy={p.y}
-                    r="5"
-                    fill="#a6e3a1"
-                    stroke="#181926"
-                    strokeWidth="2"
+              <div>
+                <span style={{ color: "var(--text-secondary)" }}>Aktuell: </span>
+                <strong style={{ color: "var(--pastel-lavender)" }}>
+                  {latestWeight} kg
+                </strong>
+              </div>
+              <div>
+                <span style={{ color: "var(--text-secondary)" }}>PR: </span>
+                <strong style={{ color: "var(--pastel-peach)" }}>
+                  <Trophy
+                    size={13}
+                    style={{ display: "inline", marginRight: 3 }}
                   />
-                  <text
-                    x={p.x}
-                    y={p.y - 10}
-                    textAnchor="middle"
-                    fill="#f4f5f8"
-                    fontSize="10"
-                    fontWeight="700"
-                  >
-                    {p.item.weightKg}kg
-                  </text>
-                  <text
-                    x={p.x}
-                    y={height - 6}
-                    textAnchor="middle"
-                    fill="#a6adc8"
-                    fontSize="9"
-                  >
-                    {p.item.sessionDate.slice(5)}
-                  </text>
-                </g>
-              ))}
-            </svg>
+                  {maxWeight} kg (e1RM: {max1Rm} kg)
+                </strong>
+              </div>
+              <div>
+                <span style={{ color: "var(--text-secondary)" }}>
+                  Steigerung:{" "}
+                </span>
+                <strong style={{ color: "var(--pastel-mint)" }}>
+                  {deltaKg >= 0 ? `+${deltaKg} kg` : `${deltaKg} kg`}
+                </strong>
+              </div>
+            </div>
+
+            {uniqueExercises.length > 0 && (
+              <select
+                className="field-select"
+                style={{ minWidth: 230 }}
+                value={activeExercise}
+                onChange={(e) => setSelectedExercise(e.target.value)}
+              >
+                {uniqueExercises.map((ex) => (
+                  <option key={ex} value={ex}>
+                    {ex}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
-        </>
+
+          {history.length > 0 && (
+            <div
+              style={{
+                background: "var(--bg-soft)",
+                borderRadius: 16,
+                padding: "0.85rem",
+                border: "1px solid var(--border-subtle)",
+              }}
+            >
+              <svg
+                viewBox={`0 0 ${width} ${height}`}
+                width="100%"
+                style={{ maxHeight: 185, overflow: "visible" }}
+              >
+                <line
+                  x1={padX}
+                  y1={padY}
+                  x2={width - padX}
+                  y2={padY}
+                  stroke="rgba(255,255,255,0.06)"
+                  strokeDasharray="4 4"
+                />
+                <line
+                  x1={padX}
+                  y1={height - padY}
+                  x2={width - padX}
+                  y2={height - padY}
+                  stroke="rgba(255,255,255,0.08)"
+                />
+
+                {points.length > 1 && (
+                  <polyline
+                    fill="none"
+                    stroke="#cba6f7"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    points={polylineStr}
+                  />
+                )}
+
+                {points.map((p, i) => (
+                  <g key={i}>
+                    <circle
+                      cx={p.x}
+                      cy={p.y}
+                      r="5"
+                      fill="#a6e3a1"
+                      stroke="#181926"
+                      strokeWidth="2"
+                    />
+                    <text
+                      x={p.x}
+                      y={p.y - 10}
+                      textAnchor="middle"
+                      fill="#f4f5f8"
+                      fontSize="10"
+                      fontWeight="700"
+                    >
+                      {p.item.weightKg}kg
+                    </text>
+                    <text
+                      x={p.x}
+                      y={height - 6}
+                      textAnchor="middle"
+                      fill="#a6adc8"
+                      fontSize="9"
+                    >
+                      {p.item.sessionDate.slice(5)}
+                    </text>
+                  </g>
+                ))}
+              </svg>
+            </div>
+          )}
+        </div>
       )}
     </section>
   );

@@ -48,6 +48,7 @@ export function GymSessionModal({
   const [mode, setMode] = useState<"choose" | "active" | "builder">(
     templates.length > 0 ? "choose" : "builder"
   );
+  const [expandedTplId, setExpandedTplId] = useState<number | null>(null);
   const [activeWorkoutName, setActiveWorkoutName] = useState("Mein Gym Workout");
   const [sessionExercises, setSessionExercises] = useState<
     Array<{
@@ -460,75 +461,111 @@ export function GymSessionModal({
                 </button>
               </div>
             ) : (
-              templates.map((tpl) => (
-                <div
-                  key={tpl.id}
-                  style={{
-                    background: "var(--bg-soft)",
-                    borderRadius: 16,
-                    padding: "1.1rem",
-                    border: "1px solid var(--border-subtle)",
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    gap: "1rem",
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <div>
-                    <div
-                      style={{
-                        fontWeight: 800,
-                        fontSize: "1.02rem",
-                        marginBottom: "0.3rem",
-                      }}
-                    >
-                      {tpl.name}
-                    </div>
+              templates.map((tpl) => {
+                const isExpanded = expandedTplId === tpl.id;
+                return (
+                  <div
+                    key={tpl.id}
+                    style={{
+                      background: "var(--bg-soft)",
+                      borderRadius: 16,
+                      padding: "0.95rem 1.1rem",
+                      border: "1px solid var(--border-subtle)",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "0.75rem",
+                    }}
+                  >
                     <div
                       style={{
                         display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        gap: "0.75rem",
                         flexWrap: "wrap",
-                        gap: "0.4rem",
                       }}
                     >
-                      {tpl.exercises.map((ex, i) => (
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "0.65rem",
+                          cursor: "pointer",
+                        }}
+                        onClick={() =>
+                          setExpandedTplId(isExpanded ? null : tpl.id)
+                        }
+                      >
+                        <strong style={{ fontSize: "1.02rem" }}>
+                          {tpl.name}
+                        </strong>
+                        <span className="badge badge-gym">
+                          {tpl.exercises.length} Maschinen
+                        </span>
                         <span
-                          key={`${tpl.id}-${i}`}
                           style={{
-                            fontSize: "0.75rem",
-                            padding: "0.2rem 0.55rem",
-                            borderRadius: 999,
-                            background: "rgba(255,255,255,0.06)",
+                            fontSize: "0.76rem",
                             color: "var(--text-secondary)",
                           }}
                         >
-                          {ex.name} ({ex.targetSets}×{ex.targetReps} @{" "}
-                          {ex.defaultWeightKg}kg)
+                          {isExpanded ? "▲ Einklappen" : "▼ Übungen anzeigen"}
                         </span>
-                      ))}
+                      </div>
+
+                      <div style={{ display: "flex", gap: "0.5rem" }}>
+                        <button
+                          type="button"
+                          className="pastel-btn btn-lavender"
+                          style={{ padding: "0.5rem 0.95rem", fontSize: "0.82rem" }}
+                          onClick={() => startFromTemplate(tpl)}
+                        >
+                          <Play size={14} />
+                          <span>Starten</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="delete-btn"
+                          onClick={() => onDeleteTemplate(tpl.id)}
+                          title="Plan löschen"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
                     </div>
+
+                    {isExpanded && (
+                      <div
+                        style={{
+                          display: "flex",
+                          flexWrap: "wrap",
+                          gap: "0.4rem",
+                          paddingTop: "0.55rem",
+                          borderTop: "1px solid var(--border-subtle)",
+                        }}
+                      >
+                        {tpl.exercises.map((ex, i) => (
+                          <span
+                            key={`${tpl.id}-${i}`}
+                            style={{
+                              fontSize: "0.76rem",
+                              padding: "0.24rem 0.6rem",
+                              borderRadius: 999,
+                              background: "rgba(255,255,255,0.06)",
+                              color: "var(--text-secondary)",
+                            }}
+                          >
+                            <strong style={{ color: "var(--text-primary)" }}>
+                              {ex.name}
+                            </strong>{" "}
+                            • {ex.targetSets}×{ex.targetReps} @{" "}
+                            {ex.defaultWeightKg}kg
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  <div style={{ display: "flex", gap: "0.5rem" }}>
-                    <button
-                      type="button"
-                      className="pastel-btn btn-lavender"
-                      onClick={() => startFromTemplate(tpl)}
-                    >
-                      <Play size={15} />
-                      <span>Starten</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="delete-btn"
-                      onClick={() => onDeleteTemplate(tpl.id)}
-                      title="Plan löschen"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         )}

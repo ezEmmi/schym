@@ -11,9 +11,15 @@ import {
   Sparkles,
 } from "lucide-react";
 import type { FitnessDataset } from "@/lib/db/schema";
+import {
+  parseHevyCsv,
+  parseStravaActivitiesCsv,
+  parseStravaWebTableText,
+} from "@/lib/importers";
+import { USER_HEVY_CSV_RAW } from "@/lib/hevy-seed";
 
 interface StravaSyncModuleProps {
-  todayIso: string;
+  currentData: FitnessDataset;
   onSynced: (newData: FitnessDataset, importedCount: number) => void;
   onError: (msg: string) => void;
   onClose?: () => void;
@@ -22,7 +28,7 @@ interface StravaSyncModuleProps {
 type ImportTab = "file_drop" | "copy_paste" | "oauth_free";
 
 export function StravaSyncModule({
-  todayIso,
+  currentData,
   onSynced,
   onError,
   onClose,
@@ -31,19 +37,99 @@ export function StravaSyncModule({
   const [isSyncing, setIsSyncing] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
-  // Copy & Paste state
   const [pasteFormat, setPasteFormat] = useState<
-    "strava_copy_paste" | "hevy_text"
+    "strava_copy_paste" | "hevy_csv"
   >("strava_copy_paste");
   const [pastedText, setPastedText] = useState("");
 
-  // Free OAuth state (works on Free Strava accounts by requesting activity:read_all!)
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
   const [oauthCode, setOauthCode] = useState("");
 
+  function mergeClientSideImport(
+    format: "hevy_csv" | "strava_csv" | "strava_copy_paste",
+    rawContent: string
+  ): { merged: FitnessDataset; count: number } {
+    const parsed =
+      format === "hevy_csv"
+        ? parseHevyCsv(rawContent)
+        : format === "strava_csv"
+          ? parseStravaActivitiesCsv(rawContent)
+          : parseStravaWebTableText(rawContent);
+
+    const nowIso = new Date().toISOString();
+    const existingGym = [...currentData.gym];
+    let count = 0;
+
+    for (const g of parsed.gymEntries) {
+      const idx = existingGym.findIndex(
+        (e) =>
+          e.sessionDate === g.sessionDate &&
+          e.workoutFocus.toLowerCase() === g.workoutFocus.toLowerCase() &&
+          e.exerciseName.toLowerCase() === g.exerciseName.toLowerCase()
+      );
+      if (idx >= 0) {
+        existingGym[idx] = {
+          ...existingGym[idx]!,
+          ...g,
+          muscleGroup: g.muscleGroup ?? existingGym[idx]!.muscleGroup,
+        };
+      } else {
+        existingGym.push({
+          id: Date.now() + count,
+          ...g,
+          muscleGroup: g.muscleGroup ?? "chest",
+          createdAt: nowIso,
+        });
+      }
+      count += 1;
+    }
+
+    existingGym.sort((a, b) => b.sessionDate.localeCompare(a.sessionDate));
+
+    const existingCardio = [...currentData.cardio];
+    for (const c of parsed.cardioSessions) {
+      existingCardio.unshift({
+        id: Date.now() + count,
+        ...c,
+        createdAt: nowIso,
+      });
+      count += 1;
+    }
+
+    const existingTemplates = [...currentData.templates];
+    for (const t of parsed.templates) {
+      const tIdx = existingTemplates.findIndex(
+        (et) => et.name.toLowerCase() === t.name.toLowerCase()
+      );
+      if (tIdx >= 0) {
+        existingTemplates[tIdx] = {
+          ...existingTemplates[tIdx]!,
+          exercises: t.exercises,
+        };
+      } else {
+        existingTemplates.push({
+          id: Date.now() + existingTemplates.length + 1,
+          name: t.name,
+          exercises: t.exercises,
+          createdAt: nowIso,
+        });
+      }
+    }
+
+    return {
+      merged: {
+        ...currentData,
+        gym: existingGym,
+        cardio: existingCardio,
+        templates: existingTemplates,
+      },
+      count,
+    };
+  }
+
   async function runFreeImport(
-    format: "hevy_csv" | "strava_csv" | "strava_copy_paste" | "hevy_text",
+    format: "hevy_csv" | "strava_csv" | "strava_copy_paste",
     rawContent: string
   ) {
     setStatusMessage(null);
@@ -58,23 +144,41 @@ export function StravaSyncModule({
           rawContent,
         }),
       });
-      const json = (await res.json()) as {
-        ok: boolean;
-        importedCount?: number;
-        data?: FitnessDataset;
-        error?: string;
-      };
-      if (!res.ok || !json.ok || !json.data) {
-        onError(json.error ?? "Import fehlgeschlagen.");
+      if (res.ok) {
+        const json = (await res.json()) as {
+          ok: boolean;
+          importedCount?: number;
+          data?: FitnessDataset;
+          error?: string;
+        };
+        if (json.ok && json.data) {
+          setPastedText("");
+          setStatusMessage(
+            `${json.importedCount ?? 0} Einträge erfolgreich importiert!`
+          );
+          onSynced(json.data, json.importedCount ?? 0);
+          return;
+        }
+      }
+
+      // Fallback for GitHub Pages (static mode without /api route)
+      const { merged, count } = mergeClientSideImport(format, rawContent);
+      if (count === 0) {
+        onError("Keine passenden Aktivitäten im CSV/Text erkannt.");
         return;
       }
       setPastedText("");
-      setStatusMessage(
-        `Mega! ${json.importedCount ?? 0} Einträge erfolgreich importiert (inkl. Kalender, Streak & Muskel-Map)!`
-      );
-      onSynced(json.data, json.importedCount ?? 0);
+      setStatusMessage(`${count} Einträge erfolgreich importiert!`);
+      onSynced(merged, count);
     } catch {
-      onError("Netzwerkfehler beim Importieren.");
+      const { merged, count } = mergeClientSideImport(format, rawContent);
+      if (count > 0) {
+        setPastedText("");
+        setStatusMessage(`${count} Einträge im Handy-Speicher importiert!`);
+        onSynced(merged, count);
+      } else {
+        onError("Import fehlgeschlagen.");
+      }
     } finally {
       setIsSyncing(false);
     }
@@ -96,7 +200,6 @@ export function StravaSyncModule({
     setStatusMessage(null);
     setIsSyncing(true);
     try {
-      // Extract `code=` if the user pasted the full localhost URL after authorizing
       let cleanCode = oauthCode.trim();
       if (cleanCode.includes("code=")) {
         const match = /[?&]code=([^&]+)/.exec(cleanCode);
@@ -126,45 +229,32 @@ export function StravaSyncModule({
       }
       setOauthCode("");
       setStatusMessage(
-        `${json.importedCount ?? 0} Aktivitäten kostenlos über die Strava API geladen!`
+        `${json.importedCount ?? 0} Aktivitäten über die Strava API geladen!`
       );
       onSynced(json.data, json.importedCount ?? 0);
     } catch {
-      onError("Fehler beim Strava OAuth Sync.");
+      onError("Strava OAuth benötigt den lokalen Server.");
     } finally {
       setIsSyncing(false);
     }
   }
 
-  const sampleHevyCsv = `"title","start_time","end_time","description","exercise_title","superset_id","exercise_notes","set_index","set_type","weight_kg","reps","distance_km","duration_seconds","rpe"
-"Ganzkörper Plan A","${todayIso} 17:30:00","${todayIso} 18:30:00","","Bench Press (Machine)","","",0,"normal",75,8,0,0,8
-"Ganzkörper Plan A","${todayIso} 17:30:00","${todayIso} 18:30:00","","Bench Press (Machine)","","",1,"normal",75,8,0,0,8
-"Ganzkörper Plan A","${todayIso} 17:30:00","${todayIso} 18:30:00","","Lat Pulldown (Cable)","","",0,"normal",65,10,0,0,8
-"Ganzkörper Plan A","${todayIso} 17:30:00","${todayIso} 18:30:00","","Lat Pulldown (Cable)","","",1,"normal",65,10,0,0,8
-"Ganzkörper Plan A","${todayIso} 17:30:00","${todayIso} 18:30:00","","Leg Press (Machine)","","",0,"normal",145,10,0,0,8`;
-
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true">
-      <div className="modal-sheet">
+      <div className="modal-sheet" style={{ maxWidth: 580 }}>
         <div
           style={{
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
-            paddingBottom: "1rem",
+            paddingBottom: "0.9rem",
             borderBottom: "1px solid var(--border-subtle)",
-            marginBottom: "1.1rem",
+            marginBottom: "1rem",
           }}
         >
-          <div>
-            <h2 style={{ fontSize: "1.18rem", fontWeight: 800 }}>
-              100% Kostenloser Strava &amp; Hevy Import (Ohne Pro-Abo!)
-            </h2>
-            <p style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
-              Du brauchst weder Strava Pro noch Hevy Pro — wähle einfach einen
-              der 3 kostenlosen Wege:
-            </p>
-          </div>
+          <h2 style={{ fontSize: "1.12rem", fontWeight: 800 }}>
+            Hevy &amp; Strava Import 📥
+          </h2>
           {onClose && (
             <button
               type="button"
@@ -177,13 +267,13 @@ export function StravaSyncModule({
           )}
         </div>
 
-        {/* 3 Free Methods Switcher */}
+        {/* Clean 3-Tab Switcher */}
         <div
           style={{
             display: "flex",
-            gap: "0.5rem",
+            gap: "0.45rem",
             flexWrap: "wrap",
-            marginBottom: "1.2rem",
+            marginBottom: "1rem",
           }}
         >
           <button
@@ -191,8 +281,8 @@ export function StravaSyncModule({
             className={`pill-tab ${activeTab === "file_drop" ? "active" : ""}`}
             onClick={() => setActiveTab("file_drop")}
           >
-            <Upload size={14} style={{ display: "inline", marginRight: 5 }} />
-            1. Datei-Upload (Hevy CSV &amp; Strava CSV)
+            <Upload size={13} style={{ display: "inline", marginRight: 5 }} />
+            CSV-Datei Upload
           </button>
           <button
             type="button"
@@ -200,18 +290,18 @@ export function StravaSyncModule({
             onClick={() => setActiveTab("copy_paste")}
           >
             <ClipboardPaste
-              size={14}
+              size={13}
               style={{ display: "inline", marginRight: 5 }}
             />
-            2. Copy &amp; Paste (von Strava-Webseite / Hevy)
+            Copy &amp; Paste
           </button>
           <button
             type="button"
             className={`pill-tab ${activeTab === "oauth_free" ? "active" : ""}`}
             onClick={() => setActiveTab("oauth_free")}
           >
-            <KeyRound size={14} style={{ display: "inline", marginRight: 5 }} />
-            3. Kostenloser Strava OAuth-Trick
+            <KeyRound size={13} style={{ display: "inline", marginRight: 5 }} />
+            Strava API
           </button>
         </div>
 
@@ -219,12 +309,12 @@ export function StravaSyncModule({
           <div
             style={{
               background: "rgba(166, 227, 161, 0.14)",
-              border: "1px solid rgba(166, 227, 161, 0.4)",
+              border: "1px solid var(--pastel-mint)",
               color: "var(--pastel-mint)",
-              padding: "0.75rem 1rem",
+              padding: "0.7rem 0.9rem",
               borderRadius: 12,
-              fontSize: "0.85rem",
-              marginBottom: "1rem",
+              fontSize: "0.82rem",
+              marginBottom: "0.9rem",
               display: "flex",
               alignItems: "center",
               gap: "0.5rem",
@@ -235,106 +325,96 @@ export function StravaSyncModule({
           </div>
         )}
 
-        {/* TAB 1: FREE CSV FILE UPLOAD (HEVY & STRAVA) */}
         {activeTab === "file_drop" && (
-          <div className="workspace-grid">
-            <section
+          <div
+            style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}
+          >
+            <div
               style={{
                 background: "var(--bg-soft)",
-                padding: "1.2rem",
-                borderRadius: 18,
+                padding: "1rem",
+                borderRadius: 16,
                 border: "1px solid rgba(203, 166, 247, 0.28)",
                 display: "flex",
                 flexDirection: "column",
-                gap: "0.85rem",
+                gap: "0.65rem",
               }}
             >
-              <div
+              <strong style={{ fontSize: "0.9rem" }}>
+                1. Hevy <code>workouts.csv</code>
+              </strong>
+              <p
                 style={{
-                  fontSize: "0.72rem",
-                  fontWeight: 800,
-                  color: "var(--pastel-lavender)",
-                  textTransform: "uppercase",
+                  fontSize: "0.8rem",
+                  color: "var(--text-secondary)",
+                  margin: 0,
                 }}
               >
-                100% Kostenlos in der Hevy App
-              </div>
-              <h3 className="panel-title">Hevy CSV-Datei hochladen</h3>
-              <p className="panel-desc" style={{ marginBottom: 0 }}>
-                Öffne deine kostenlose Hevy App →{" "}
-                <strong>Profil → Einstellungen (⚙️) → Daten exportieren</strong>
-                . Lade die <code>workouts.csv</code> hier hoch — Schym baut
-                daraus automatisch deine Gym-Pläne, Maschinen, Gewichte &amp;
-                Körper-Map!
+                Deine 11 Hevy-Workouts (<em>Drücken</em> &amp; <em>Ziehen</em>{" "}
+                von Sept–Nov) sind bereits fest hinterlegt! Du kannst sie hier
+                jederzeit neu laden oder eine neuere CSV wählen:
               </p>
+              <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  className="pastel-btn btn-lavender"
+                  disabled={isSyncing}
+                  onClick={() => runFreeImport("hevy_csv", USER_HEVY_CSV_RAW)}
+                >
+                  <Sparkles size={15} />
+                  <span>Meine 11 Hevy-Workouts jetzt synchronisieren</span>
+                </button>
 
-              <label
-                className="pastel-btn btn-lavender"
-                style={{ cursor: "pointer", textAlign: "center" }}
-              >
-                <Upload size={16} />
-                <span>Hevy CSV-Datei auswählen...</span>
-                <input
-                  type="file"
-                  accept=".csv,text/csv"
-                  style={{ display: "none" }}
-                  onChange={(e) => handleFileUpload(e, "hevy_csv")}
-                />
-              </label>
+                <label
+                  className="pill-tab"
+                  style={{
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                  }}
+                >
+                  <Upload size={14} />
+                  <span>Andere Hevy CSV wählen...</span>
+                  <input
+                    type="file"
+                    accept=".csv,text/csv"
+                    style={{ display: "none" }}
+                    onChange={(e) => handleFileUpload(e, "hevy_csv")}
+                  />
+                </label>
+              </div>
+            </div>
 
-              <button
-                type="button"
-                className="pill-tab"
-                style={{ marginTop: "0.25rem" }}
-                disabled={isSyncing}
-                onClick={() => runFreeImport("hevy_csv", sampleHevyCsv)}
-              >
-                <Sparkles
-                  size={14}
-                  style={{ display: "inline", marginRight: 5 }}
-                />
-                Test: Beispiel Hevy-CSV jetzt ausprobieren
-              </button>
-            </section>
-
-            <section
+            <div
               style={{
                 background: "var(--bg-soft)",
-                padding: "1.2rem",
-                borderRadius: 18,
+                padding: "1rem",
+                borderRadius: 16,
                 border: "1px solid rgba(166, 227, 161, 0.28)",
                 display: "flex",
                 flexDirection: "column",
-                gap: "0.85rem",
+                gap: "0.65rem",
               }}
             >
-              <div
+              <strong style={{ fontSize: "0.9rem" }}>
+                2. Strava <code>activities.csv</code> (ohne Pro-Abo)
+              </strong>
+              <p
                 style={{
-                  fontSize: "0.72rem",
-                  fontWeight: 800,
-                  color: "var(--pastel-mint)",
-                  textTransform: "uppercase",
+                  fontSize: "0.8rem",
+                  color: "var(--text-secondary)",
+                  margin: 0,
                 }}
               >
-                100% Kostenlos im Strava Account
-              </div>
-              <h3 className="panel-title">
-                Strava <code>activities.csv</code> hochladen
-              </h3>
-              <p className="panel-desc" style={{ marginBottom: 0 }}>
-                Auf Strava.com →{" "}
-                <strong>
-                  Einstellungen → Mein Konto → Dein Archiv anfordern
-                </strong>{" "}
-                (komplett kostenlos ohne Pro!). Wähle aus der ZIP-Datei einfach
-                die <code>activities.csv</code> aus:
+                Aus deinem kostenlosen Strava-Datenarchiv (
+                <em>Einstellungen → Mein Konto → Archiv anfordern</em>):
               </p>
-
               <label
                 className="pastel-btn btn-mint"
-                style={{ cursor: "pointer", textAlign: "center" }}
+                style={{ cursor: "pointer", width: "fit-content" }}
               >
-                <Upload size={16} />
+                <Upload size={15} />
                 <span>Strava activities.csv auswählen...</span>
                 <input
                   type="file"
@@ -343,24 +423,23 @@ export function StravaSyncModule({
                   onChange={(e) => handleFileUpload(e, "strava_csv")}
                 />
               </label>
-            </section>
+            </div>
           </div>
         )}
 
-        {/* TAB 2: COPY & PASTE FROM STRAVA WEB OR HEVY */}
         {activeTab === "copy_paste" && (
           <div
             style={{
               background: "var(--bg-soft)",
-              padding: "1.2rem",
-              borderRadius: 18,
+              padding: "1rem",
+              borderRadius: 16,
               border: "1px solid var(--border-subtle)",
               display: "flex",
               flexDirection: "column",
-              gap: "0.9rem",
+              gap: "0.8rem",
             }}
           >
-            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: "0.45rem", flexWrap: "wrap" }}>
               <button
                 type="button"
                 className={`pill-tab ${
@@ -368,49 +447,26 @@ export function StravaSyncModule({
                 }`}
                 onClick={() => setPasteFormat("strava_copy_paste")}
               >
-                Strava „Meine Aktivitäten“ Tabelle (Strg+C / Strg+V)
+                Strava „Meine Aktivitäten“ Tabelle
               </button>
               <button
                 type="button"
                 className={`pill-tab ${
-                  pasteFormat === "hevy_text" ? "active" : ""
+                  pasteFormat === "hevy_csv" ? "active" : ""
                 }`}
-                onClick={() => setPasteFormat("hevy_text")}
+                onClick={() => setPasteFormat("hevy_csv")}
               >
-                Hevy Workout Share-Text
+                Hevy CSV-Text direkt einfügen
               </button>
             </div>
 
-            {pasteFormat === "strava_copy_paste" ? (
-              <p style={{ fontSize: "0.82rem", color: "var(--text-secondary)" }}>
-                Öffne im Browser{" "}
-                <a
-                  href="https://www.strava.com/athlete/training"
-                  target="_blank"
-                  rel="noreferrer"
-                  style={{ color: "var(--pastel-mint)", fontWeight: 700 }}
-                >
-                  strava.com/athlete/training („Meine Aktivitäten“)
-                </a>{" "}
-                — das ist bei Strava 100 % kostenlos! Markiere einfach die
-                Zeilen in deiner Tabelle mit der Maus, drücke{" "}
-                <code>Strg+C</code> und füge sie hier mit <code>Strg+V</code>{" "}
-                ein:
-              </p>
-            ) : (
-              <p style={{ fontSize: "0.82rem", color: "var(--text-secondary)" }}>
-                Tippe in Hevy nach einem Workout auf{" "}
-                <strong>Teilen → Text kopieren</strong> und füge ihn hier ein:
-              </p>
-            )}
-
             <textarea
               className="field-input"
-              rows={6}
+              rows={5}
               placeholder={
                 pasteFormat === "strava_copy_paste"
-                  ? "Lauf\t10.11.2026\tAbendlauf\t38:12\t7,50 km\nRadfahrt\t08.11.2026\tSonntagsrunde\t1:15:00\t28,4 km"
-                  : "Bench Press (Machine)\nSet 1: 75 kg x 8\nSet 2: 75 kg x 8\n\nLat Pulldown\nSet 1: 65 kg x 10"
+                  ? "Lauf\t10.11.2026\tAbendlauf\t38:12\t7,50 km"
+                  : '"title","start_time",...'
               }
               value={pastedText}
               onChange={(e) => setPastedText(e.target.value)}
@@ -423,53 +479,26 @@ export function StravaSyncModule({
               onClick={() => runFreeImport(pasteFormat, pastedText)}
             >
               <RefreshCw size={15} />
-              <span>Kopierten Text jetzt automatisch auslesen &amp; speichern</span>
+              <span>Jetzt auslesen &amp; speichern</span>
             </button>
           </div>
         )}
 
-        {/* TAB 3: FREE STRAVA OAUTH TRICK (WHY STRAVA API IS ACTUALLY FREE!) */}
         {activeTab === "oauth_free" && (
           <div
             style={{
               background: "var(--bg-soft)",
-              padding: "1.2rem",
-              borderRadius: 18,
+              padding: "1rem",
+              borderRadius: 16,
               border: "1px solid var(--border-subtle)",
               display: "flex",
               flexDirection: "column",
-              gap: "0.9rem",
+              gap: "0.8rem",
             }}
           >
-            <div
-              style={{
-                fontSize: "0.83rem",
-                color: "var(--text-secondary)",
-                lineHeight: 1.55,
-              }}
-            >
-              <strong style={{ color: "var(--pastel-peach)" }}>
-                Geheimtipp: Die Strava API kostet gar kein Pro-Abo!
-              </strong>{" "}
-              Auf{" "}
-              <a
-                href="https://www.strava.com/settings/api"
-                target="_blank"
-                rel="noreferrer"
-                style={{ color: "var(--pastel-mint)", fontWeight: 700 }}
-              >
-                strava.com/settings/api
-              </a>{" "}
-              hat der Standard-Token nur die Berechtigung <code>read</code>{" "}
-              (deshalb zeigt er keine Trainings an). Mit deiner{" "}
-              <strong>Client ID</strong> kannst du dir hier mit 1 Klick
-              kostenlos die echte <code>activity:read_all</code> Berechtigung
-              holen:
-            </div>
-
             <div className="form-row-2">
               <label className="field-label">
-                1. Deine Strava Client ID
+                1. Strava Client ID
                 <input
                   type="text"
                   className="field-input"
@@ -479,11 +508,11 @@ export function StravaSyncModule({
                 />
               </label>
               <label className="field-label">
-                2. Dein Strava Client Secret
+                2. Strava Client Secret
                 <input
                   type="password"
                   className="field-input"
-                  placeholder="Client Secret von strava.com/settings/api"
+                  placeholder="Client Secret"
                   value={clientSecret}
                   onChange={(e) => setClientSecret(e.target.value)}
                 />
@@ -500,19 +529,17 @@ export function StravaSyncModule({
                 className="pastel-btn btn-peach"
                 style={{ textDecoration: "none" }}
               >
-                Schritt A: Hier klicken &amp; bei Strava „Autorisieren“ drücken ↗
+                Schritt A: Bei Strava autorisieren ↗
               </a>
             )}
 
             <form className="form-stack" onSubmit={handleOauthCodeExchange}>
               <label className="field-label">
-                3. Nach dem Klick auf „Autorisieren“: Kopiere die URL (oder den{" "}
-                <code>code=...</code> Teil) aus deiner Browser-Adresszeile hier
-                rein:
+                3. Redirect-URL (mit code=...) einfügen:
                 <input
                   type="text"
                   className="field-input"
-                  placeholder="http://localhost:3000/?state=&code=dein_code_hier&scope=read,activity:read_all"
+                  placeholder="http://localhost:3000/?state=&code=..."
                   value={oauthCode}
                   onChange={(e) => setOauthCode(e.target.value)}
                   required
@@ -528,9 +555,7 @@ export function StravaSyncModule({
                   !oauthCode.trim()
                 }
               >
-                {isSyncing
-                  ? "Lade Trainings..."
-                  : "Schritt B: Jetzt alle Strava-Trainings kostenlos importieren"}
+                {isSyncing ? "Lade..." : "Schritt B: Trainings importieren"}
               </button>
             </form>
           </div>

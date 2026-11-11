@@ -19,6 +19,8 @@ import type {
   FitnessDataset,
 } from "./schema";
 import { inferMuscleGroupFromExercise } from "../muscles";
+import { USER_HEVY_CSV_RAW } from "../hevy-seed";
+import { parseHevyCsv } from "../importers";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const DB_PATH = path.join(DATA_DIR, "schym.db");
@@ -148,6 +150,42 @@ function ensureSchemaMigrations(dbInstance: DatabaseSync): DatabaseSync {
     insertSupp.run("Omega-3 EPA/DHA", "2 Kapseln", "Morgens", "#89dceb", nowIso);
     insertSupp.run("Vitamin D3 + K2", "1 Tropfen", "Morgens", "#fab387", nowIso);
     insertSupp.run("Magnesium Bisglycinat", "300mg", "Abends", "#f5c2e7", nowIso);
+  }
+
+  // Seed the user's Hevy workout history + templates if gym_entries is empty
+  const gymCount = dbInstance
+    .prepare("SELECT COUNT(*) as cnt FROM gym_entries")
+    .get() as { cnt: number };
+
+  if (gymCount.cnt === 0) {
+    const nowIso = new Date().toISOString();
+    const parsedHevy = parseHevyCsv(USER_HEVY_CSV_RAW);
+    const insertTpl = dbInstance.prepare(
+      "INSERT INTO workout_templates (name, exercises_json, created_at) VALUES (?, ?, ?)"
+    );
+    for (const tpl of parsedHevy.templates) {
+      insertTpl.run(tpl.name, JSON.stringify(tpl.exercises), nowIso);
+    }
+
+    const insertGym = dbInstance.prepare(
+      `INSERT INTO gym_entries (session_date, workout_focus, exercise_name, muscle_group, sets, reps, weight_kg, rpe, estimated_1rm, notes, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    for (const entry of parsedHevy.gymEntries) {
+      insertGym.run(
+        entry.sessionDate,
+        entry.workoutFocus,
+        entry.exerciseName,
+        entry.muscleGroup ?? inferMuscleGroupFromExercise(entry.exerciseName),
+        entry.sets,
+        entry.reps,
+        entry.weightKg,
+        entry.rpe,
+        entry.estimated1Rm,
+        entry.notes,
+        nowIso
+      );
+    }
   }
 
   return dbInstance;
@@ -340,6 +378,45 @@ export function insertGymEntry(entry: NewGymEntry): void {
       entry.notes,
       nowIso
     );
+}
+
+/**
+ * Upserts a GymEntry by (session_date, workout_focus, exercise_name) during CSV/Strava imports
+ * so re-importing the same file updates existing entries instead of duplicating them.
+ */
+export function upsertImportedGymEntry(entry: NewGymEntry): void {
+  const nowIso = new Date().toISOString();
+  const muscle =
+    entry.muscleGroup ?? inferMuscleGroupFromExercise(entry.exerciseName);
+  const existing = sqlite
+    .prepare(
+      "SELECT id FROM gym_entries WHERE session_date = ? AND LOWER(workout_focus) = LOWER(?) AND LOWER(exercise_name) = LOWER(?)"
+    )
+    .get(entry.sessionDate, entry.workoutFocus, entry.exerciseName) as
+    | { id: number }
+    | undefined;
+
+  if (existing) {
+    sqlite
+      .prepare(
+        `UPDATE gym_entries
+         SET muscle_group = ?, sets = ?, reps = ?, weight_kg = ?, rpe = ?, estimated_1rm = ?, notes = ?, created_at = ?
+         WHERE id = ?`
+      )
+      .run(
+        muscle,
+        entry.sets,
+        entry.reps,
+        entry.weightKg,
+        entry.rpe,
+        entry.estimated1Rm,
+        entry.notes,
+        nowIso,
+        existing.id
+      );
+  } else {
+    insertGymEntry(entry);
+  }
 }
 
 export function insertCardioSession(entry: NewCardioSession): void {

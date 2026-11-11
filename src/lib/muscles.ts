@@ -27,10 +27,26 @@ export const MUSCLE_GROUP_IDS = MUSCLE_GROUPS.map((m) => m.id) as [
  */
 export function inferMuscleGroupFromExercise(name: string): MuscleGroup {
   const lower = name.toLowerCase();
+  // Check "reverse fliegende" / "reverse fly" / "rear delt" BEFORE generic "fliegende"/"fly"
+  if (
+    lower.includes("reverse flieg") ||
+    lower.includes("reverse fly") ||
+    lower.includes("rear delt") ||
+    lower.includes("shoulder") ||
+    lower.includes("schulter") ||
+    lower.includes("lateral") ||
+    lower.includes("seitheben") ||
+    lower.includes("overhead") ||
+    lower.includes("military") ||
+    lower.includes("face pull")
+  ) {
+    return "shoulders";
+  }
   if (
     lower.includes("bench") ||
     lower.includes("brust") ||
     lower.includes("chest") ||
+    lower.includes("fliegende") ||
     lower.includes("fly") ||
     lower.includes("butterfly") ||
     lower.includes("incline press") ||
@@ -45,22 +61,13 @@ export function inferMuscleGroupFromExercise(name: string): MuscleGroup {
     lower.includes("row") ||
     lower.includes("ruder") ||
     lower.includes("klimm") ||
+    lower.includes("hyperextension") ||
+    lower.includes("rücken") ||
     lower.includes("back") ||
     lower.includes("chin") ||
     lower.includes("deadlift")
   ) {
     return "back";
-  }
-  if (
-    lower.includes("shoulder") ||
-    lower.includes("schulter") ||
-    lower.includes("lateral") ||
-    lower.includes("seitheben") ||
-    lower.includes("overhead") ||
-    lower.includes("military") ||
-    lower.includes("face pull")
-  ) {
-    return "shoulders";
   }
   if (
     lower.includes("bicep") ||
@@ -81,6 +88,12 @@ export function inferMuscleGroupFromExercise(name: string): MuscleGroup {
   if (
     lower.includes("crunch") ||
     lower.includes("plank") ||
+    lower.includes("side bend") ||
+    lower.includes("heel tap") ||
+    lower.includes("knieheben") ||
+    lower.includes("leg raise") ||
+    lower.includes("sit-up") ||
+    lower.includes("situp") ||
     lower.includes("ab ") ||
     lower.includes("abs") ||
     lower.includes("bauch") ||

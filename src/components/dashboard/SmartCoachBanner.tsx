@@ -3,11 +3,12 @@
 import React, { useState } from "react";
 import {
   Sparkles,
-  Bell,
-  Send,
   Dumbbell,
   HeartPulse,
-  Smartphone,
+  ChevronDown,
+  ChevronUp,
+  Send,
+  Bell,
   CheckCircle2,
 } from "lucide-react";
 import type { DailyCoachBriefing } from "@/lib/coach";
@@ -25,6 +26,7 @@ export function SmartCoachBanner({
   onStartCardio,
   onOpenMobileAndSignal,
 }: SmartCoachBannerProps) {
+  const [isExpanded, setIsExpanded] = useState(false);
   const [notifStatus, setNotifStatus] = useState<string | null>(null);
 
   async function enableBrowserReminder() {
@@ -37,9 +39,9 @@ export function SmartCoachBanner({
       new Notification("Schym Smart Coach 💪", {
         body: `${briefing.headline} — ${briefing.subline}`,
       });
-      setNotifStatus("Lokale Browser-Erinnerung aktiviert & Test gesendet!");
+      setNotifStatus("Lokale Browser-Erinnerung aktiviert!");
     } else {
-      setNotifStatus("Bitte Browser-Berechtigung für Erinnerungen erlauben.");
+      setNotifStatus("Bitte Browser-Berechtigung erlauben.");
     }
   }
 
@@ -47,169 +49,196 @@ export function SmartCoachBanner({
     <section
       className="panel-card"
       style={{
-        marginBottom: "1.35rem",
+        marginBottom: "0.85rem",
+        padding: "0.9rem 1.15rem",
         background:
-          "linear-gradient(135deg, rgba(203, 166, 247, 0.13) 0%, rgba(166, 227, 161, 0.09) 60%, rgba(250, 179, 135, 0.1) 100%)",
-        border: "1px solid rgba(203, 166, 247, 0.32)",
-        display: "flex",
-        flexDirection: "column",
-        gap: "1rem",
+          "linear-gradient(135deg, rgba(203, 166, 247, 0.12) 0%, rgba(166, 227, 161, 0.08) 100%)",
+        border: "1px solid rgba(203, 166, 247, 0.28)",
       }}
     >
+      {/* Compact Single Row */}
       <div
         style={{
           display: "flex",
           justifyContent: "space-between",
-          alignItems: "flex-start",
+          alignItems: "center",
           flexWrap: "wrap",
-          gap: "1rem",
+          gap: "0.75rem",
         }}
       >
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem", maxWidth: 680 }}>
-          <div
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "0.65rem",
+            flex: 1,
+            minWidth: 240,
+            cursor: "pointer",
+          }}
+          onClick={() => setIsExpanded((v) => !v)}
+        >
+          <span
             style={{
+              width: 34,
+              height: 34,
+              borderRadius: 10,
+              background: "rgba(203, 166, 247, 0.18)",
               display: "inline-flex",
               alignItems: "center",
-              gap: "0.45rem",
-              fontSize: "0.74rem",
-              fontWeight: 800,
+              justifyContent: "center",
               color: "var(--pastel-lavender)",
-              textTransform: "uppercase",
-              letterSpacing: "0.05em",
+              flexShrink: 0,
             }}
           >
-            <Sparkles size={15} />
-            <span>Smart Habit-Engine &amp; Daily Coach</span>
+            <Sparkles size={17} />
+          </span>
+          <div>
+            <div
+              style={{
+                fontSize: "0.95rem",
+                fontWeight: 800,
+                color: "var(--text-primary)",
+              }}
+            >
+              {briefing.headline}
+            </div>
+            <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>
+              {briefing.subline}
+            </div>
           </div>
-
-          <h2 style={{ fontSize: "1.2rem", fontWeight: 900, letterSpacing: "-0.02em" }}>
-            {briefing.headline}
-          </h2>
-
-          <p style={{ fontSize: "0.88rem", color: "var(--text-secondary)" }}>
-            {briefing.subline}
-          </p>
         </div>
 
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.55rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
           {briefing.recommendedAction === "gym" ? (
             <button
               type="button"
               className="pastel-btn btn-lavender"
+              style={{ padding: "0.5rem 0.95rem", fontSize: "0.8rem" }}
               onClick={onStartGym}
             >
-              <Dumbbell size={16} />
+              <Dumbbell size={15} />
               <span>
                 {briefing.recommendedTemplate
                   ? `„${briefing.recommendedTemplate.name}“ starten`
-                  : "Gym Session starten"}
+                  : "Gym starten"}
               </span>
             </button>
           ) : (
             <button
               type="button"
               className="pastel-btn btn-mint"
+              style={{ padding: "0.5rem 0.95rem", fontSize: "0.8rem" }}
               onClick={onStartCardio}
             >
-              <HeartPulse size={16} />
-              <span>Sport / Cardio eintragen</span>
+              <HeartPulse size={15} />
+              <span>Sport loggen</span>
             </button>
           )}
 
           <button
             type="button"
             className="pill-tab"
-            onClick={enableBrowserReminder}
-            title="Lokale Browser-Push-Erinnerung testen"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              padding: "0.45rem 0.75rem",
+            }}
+            onClick={() => setIsExpanded((v) => !v)}
           >
-            <Bell size={14} style={{ display: "inline", marginRight: 5 }} />
-            Erinnerung 🔔
-          </button>
-
-          <button
-            type="button"
-            className="pill-tab active"
-            onClick={onOpenMobileAndSignal}
-          >
-            <Smartphone size={14} style={{ display: "inline", marginRight: 5 }} />
-            <Send size={13} style={{ display: "inline", marginRight: 5 }} />
-            Signal-Bot &amp; Handy-App 📲
+            <span>Wochen-Rhythmus</span>
+            {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
           </button>
         </div>
       </div>
 
-      {notifStatus && (
+      {/* Expandable Details on Click */}
+      {isExpanded && (
         <div
           style={{
-            fontSize: "0.8rem",
-            color: "var(--pastel-mint)",
+            marginTop: "0.85rem",
+            paddingTop: "0.85rem",
+            borderTop: "1px solid var(--border-subtle)",
             display: "flex",
-            alignItems: "center",
-            gap: 6,
+            flexDirection: "column",
+            gap: "0.75rem",
           }}
         >
-          <CheckCircle2 size={15} />
-          <span>{notifStatus}</span>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              flexWrap: "wrap",
+              gap: "0.5rem",
+            }}
+          >
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
+              {briefing.weekdayHabits.map((h) => {
+                const colorMap = {
+                  gym: "var(--pastel-lavender)",
+                  cardio: "var(--pastel-mint)",
+                  bouldering: "var(--pastel-peach)",
+                  rest: "var(--text-muted)",
+                };
+                const col = colorMap[h.dominantType];
+                return (
+                  <span
+                    key={h.weekdayShort}
+                    style={{
+                      fontSize: "0.73rem",
+                      padding: "0.2rem 0.55rem",
+                      borderRadius: 999,
+                      background: "var(--bg-soft)",
+                      border:
+                        h.dominantType !== "rest"
+                          ? `1px solid ${col}`
+                          : "1px solid var(--border-subtle)",
+                    }}
+                  >
+                    <strong>{h.weekdayShort}:</strong>{" "}
+                    <span style={{ color: col, fontWeight: 700 }}>{h.label}</span>
+                  </span>
+                );
+              })}
+            </div>
+
+            <div style={{ display: "flex", gap: "0.45rem", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                className="pill-tab"
+                onClick={enableBrowserReminder}
+              >
+                <Bell size={13} style={{ display: "inline", marginRight: 4 }} />
+                Browser-Reminder
+              </button>
+              <button
+                type="button"
+                className="pill-tab active"
+                onClick={onOpenMobileAndSignal}
+              >
+                <Send size={13} style={{ display: "inline", marginRight: 4 }} />
+                Per Signal ans Handy senden
+              </button>
+            </div>
+          </div>
+
+          {notifStatus && (
+            <div
+              style={{
+                fontSize: "0.78rem",
+                color: "var(--pastel-mint)",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              <CheckCircle2 size={14} />
+              <span>{notifStatus}</span>
+            </div>
+          )}
         </div>
       )}
-
-      {/* Learned Weekly Habit Rhythm Bar */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          flexWrap: "wrap",
-          gap: "0.6rem",
-          paddingTop: "0.75rem",
-          borderTop: "1px solid rgba(255, 255, 255, 0.08)",
-        }}
-      >
-        <span
-          style={{
-            fontSize: "0.76rem",
-            fontWeight: 700,
-            color: "var(--text-secondary)",
-          }}
-        >
-          Dein gelernter Wochen-Rhythmus (aus deinen Daten):
-        </span>
-
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem" }}>
-          {briefing.weekdayHabits.map((h) => {
-            const colorMap = {
-              gym: "var(--pastel-lavender)",
-              cardio: "var(--pastel-mint)",
-              bouldering: "var(--pastel-peach)",
-              rest: "var(--text-muted)",
-            };
-            const col = colorMap[h.dominantType];
-            return (
-              <div
-                key={h.weekdayShort}
-                style={{
-                  fontSize: "0.74rem",
-                  padding: "0.24rem 0.6rem",
-                  borderRadius: 999,
-                  background: "rgba(24, 25, 38, 0.65)",
-                  border:
-                    h.dominantType !== "rest"
-                      ? `1px solid ${col}`
-                      : "1px solid var(--border-subtle)",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 5,
-                }}
-              >
-                <strong style={{ color: "var(--text-primary)" }}>
-                  {h.weekdayShort}:
-                </strong>
-                <span style={{ color: col, fontWeight: 700 }}>{h.label}</span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
     </section>
   );
 }

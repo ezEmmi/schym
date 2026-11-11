@@ -240,6 +240,10 @@ export function parseHevyCsv(csvContent: string): UniversalImportResult {
     (h) => h === "reps" || h === "wiederholungen"
   );
   const idxRpe = headers.findIndex((h) => h === "rpe");
+  const idxNotes = headers.findIndex(
+    (h) => h === "exercise_notes" || h === "notes" || h === "description"
+  );
+  const idxSetType = headers.findIndex((h) => h === "set_type");
 
   if (idxExercise === -1) {
     return { gymEntries: [], cardioSessions: [], templates: [] };
@@ -256,6 +260,7 @@ export function parseHevyCsv(csvContent: string): UniversalImportResult {
       maxWeightKg: number;
       reps: number;
       rpe: number;
+      notes: string;
     }
   >();
 
@@ -275,6 +280,17 @@ export function parseHevyCsv(csvContent: string): UniversalImportResult {
     const exerciseName = (row[idxExercise] ?? "").replace(/^"|"$/g, "").trim();
     if (!exerciseName) continue;
 
+    const setType =
+      (idxSetType >= 0 ? row[idxSetType] : "normal")
+        ?.replace(/^"|"$/g, "")
+        .toLowerCase()
+        .trim() || "normal";
+
+    // Skip pure warmup sets when counting working sets
+    if (setType === "warmup") {
+      continue;
+    }
+
     const workoutFocus =
       (idxTitle >= 0 ? row[idxTitle] : "Hevy Workout")
         ?.replace(/^"|"$/g, "")
@@ -282,6 +298,9 @@ export function parseHevyCsv(csvContent: string): UniversalImportResult {
     const rawDate =
       (idxStart >= 0 ? row[idxStart] : "")?.replace(/^"|"$/g, "").trim() || "";
     const sessionDate = normalizeToIsoDate(rawDate);
+
+    const exerciseNote =
+      (idxNotes >= 0 ? row[idxNotes] : "")?.replace(/^"|"$/g, "").trim() || "";
 
     const weightRaw = (idxWeight >= 0 ? row[idxWeight] : "0") ?? "0";
     const repsRaw = (idxReps >= 0 ? row[idxReps] : "8") ?? "8";
@@ -313,12 +332,18 @@ export function parseHevyCsv(csvContent: string): UniversalImportResult {
         maxWeightKg: weightKg,
         reps,
         rpe,
+        notes: exerciseNote,
       });
     } else {
       existing.sets += 1;
       currentSetCount = existing.sets;
-      if (weightKg >= existing.maxWeightKg) {
+      if (exerciseNote && !existing.notes) {
+        existing.notes = exerciseNote;
+      }
+      if (weightKg > existing.maxWeightKg) {
         existing.maxWeightKg = weightKg;
+        existing.reps = reps;
+      } else if (weightKg === existing.maxWeightKg && reps > existing.reps) {
         existing.reps = reps;
       }
     }
@@ -328,8 +353,9 @@ export function parseHevyCsv(csvContent: string): UniversalImportResult {
     }
     const workoutExercises = templatesMap.get(workoutFocus)!;
     const prevEx = workoutExercises.get(exerciseName);
+    const groupEntry = groupedSets.get(key)!;
 
-    // Always prefer the most recent session's weight & reps for the reusable template
+    // Always prefer the most recent session's weight & best working reps for the reusable template
     if (!prevEx || sessionDate >= prevEx.latestDate) {
       workoutExercises.set(exerciseName, {
         name: exerciseName,
@@ -337,8 +363,8 @@ export function parseHevyCsv(csvContent: string): UniversalImportResult {
         targetSets: prevEx
           ? Math.max(prevEx.targetSets, currentSetCount)
           : Math.max(3, currentSetCount),
-        targetReps: reps,
-        defaultWeightKg: weightKg,
+        targetReps: groupEntry.reps,
+        defaultWeightKg: groupEntry.maxWeightKg,
         latestDate: sessionDate,
       });
     }
@@ -355,7 +381,7 @@ export function parseHevyCsv(csvContent: string): UniversalImportResult {
       weightKg: g.maxWeightKg,
       rpe: g.rpe,
       estimated1Rm: calculateEstimated1Rm(g.maxWeightKg, g.reps),
-      notes: "Hevy Brain-Clone",
+      notes: g.notes || "Hevy Import",
     })
   );
 

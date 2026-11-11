@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   getAllFitnessData,
   insertCardioSession,
-  insertGymEntry,
+  upsertImportedGymEntry,
   insertWorkoutTemplate,
   runInTransaction,
 } from "@/lib/db";
@@ -48,7 +48,7 @@ function importValidatedStravaActivities(
           });
 
           for (const ex of hevyExercises) {
-            insertGymEntry({
+            upsertImportedGymEntry({
               sessionDate,
               workoutFocus: act.name,
               exerciseName: ex.name,
@@ -145,7 +145,7 @@ export async function POST(request: NextRequest) {
             insertWorkoutTemplate(tpl);
           }
           for (const entry of res.gymEntries) {
-            insertGymEntry(entry);
+            upsertImportedGymEntry(entry);
             count += 1;
           }
         } else if (format === "strava_csv") {
@@ -171,7 +171,7 @@ export async function POST(request: NextRequest) {
               exercises,
             });
             for (const ex of exercises) {
-              insertGymEntry({
+              upsertImportedGymEntry({
                 sessionDate: detectedDate,
                 workoutFocus: "Hevy Share-Text",
                 exerciseName: ex.name,
