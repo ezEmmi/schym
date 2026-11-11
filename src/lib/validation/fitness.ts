@@ -163,7 +163,8 @@ export const signalNotifyRequestSchema = z
     recipientPhone: z
       .string()
       .trim()
-      .regex(/^\+?[0-9]{7,16}$/, "Bitte gültige Telefonnummer im Format +49... angeben"),
+      .min(4, "Bitte gültige Telefonnummer (+49...) oder CallMeBot-UUID angeben")
+      .max(80),
     senderPhone: z.string().trim().max(20).optional(),
     endpointUrl: z.string().trim().max(200).optional(),
     apiKey: z.string().trim().max(64).optional(),

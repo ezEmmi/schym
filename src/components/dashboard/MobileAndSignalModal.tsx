@@ -7,6 +7,7 @@ import {
   X,
   ChevronDown,
   ChevronUp,
+  ExternalLink,
 } from "lucide-react";
 import type { DailyCoachBriefing } from "@/lib/coach";
 
@@ -16,6 +17,17 @@ interface MobileAndSignalModalProps {
 }
 
 const SIGNAL_PREFS_KEY = "schym_signal_prefs_v1";
+
+function normalizePhoneOrUuid(raw: string): string {
+  const cleaned = raw.trim().replace(/\s+/g, "");
+  if (/^0[1-9][0-9]{6,14}$/.test(cleaned)) {
+    return `+49${cleaned.slice(1)}`;
+  }
+  if (/^[1-9][0-9]{7,15}$/.test(cleaned)) {
+    return `+${cleaned}`;
+  }
+  return cleaned;
+}
 
 export function MobileAndSignalModal({
   briefing,
@@ -44,18 +56,59 @@ export function MobileAndSignalModal({
     }
   }, []);
 
+  // Smart helper: if the user pastes the entire CallMeBot URL from Signal, extract phone/UUID & apikey automatically!
+  function handleSmartInput(field: "phone" | "key", value: string) {
+    if (value.includes("phone=") && value.includes("apikey=")) {
+      const phoneMatch = /[?&]phone=([^&\s]+)/.exec(value);
+      const keyMatch = /[?&]apikey=([^&\s]+)/.exec(value);
+      if (phoneMatch?.[1]) {
+        setRecipientPhone(decodeURIComponent(phoneMatch[1]));
+      }
+      if (keyMatch?.[1]) {
+        setApiKey(decodeURIComponent(keyMatch[1]));
+      }
+      return;
+    }
+    if (field === "phone") {
+      setRecipientPhone(value);
+    } else {
+      setApiKey(value);
+    }
+  }
+
+  function buildCallMeBotUrl(host: "signal.callmebot.com" | "api.callmebot.com"): string {
+    const cleanPhone = normalizePhoneOrUuid(recipientPhone);
+    const url = new URL(`https://${host}/signal/send.php`);
+    url.searchParams.set("phone", cleanPhone);
+    url.searchParams.set("apikey", apiKey.trim());
+    url.searchParams.set("text", briefing.signalMessageText);
+    return url.toString();
+  }
+
   async function handleSendSignal(e: React.FormEvent) {
     e.preventDefault();
     setStatusMsg(null);
     setErrorMsg(null);
+
+    const cleanPhone = normalizePhoneOrUuid(recipientPhone);
+    const cleanKey = apiKey.trim();
+
+    if (cleanPhone.length < 4 || cleanKey.length < 2) {
+      setErrorMsg(
+        "Bitte gib deine Nummer/UUID aus der CallMeBot-Antwort und deinen API-Key ein."
+      );
+      return;
+    }
+
     setIsSending(true);
+    setRecipientPhone(cleanPhone);
 
     try {
       window.localStorage.setItem(
         SIGNAL_PREFS_KEY,
         JSON.stringify({
-          phone: recipientPhone.trim(),
-          apiKey: apiKey.trim(),
+          phone: cleanPhone,
+          apiKey: cleanKey,
         })
       );
     } catch {
@@ -63,63 +116,32 @@ export function MobileAndSignalModal({
     }
 
     try {
-      const res = await fetch("/api/notify/signal", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mode: "callmebot",
-          recipientPhone: recipientPhone.trim(),
-          apiKey: apiKey.trim(),
-          message: briefing.signalMessageText,
-        }),
-      });
+      // Dispatch directly from the user's browser to CallMeBot's official Signal gateway
+      const primaryUrl = buildCallMeBotUrl("signal.callmebot.com");
+      await fetch(primaryUrl, { mode: "no-cors", cache: "no-store" });
 
-      if (res.ok) {
-        const json = (await res.json()) as { ok: boolean; error?: string };
-        if (json.ok) {
-          setStatusMsg(
-            "Signal-Nachricht erfolgreich geschickt! 💬"
-          );
-          return;
-        }
-        setErrorMsg(json.error ?? "Signal-Versand fehlgeschlagen.");
-        return;
-      }
-
-      if (apiKey.trim()) {
-        const url = new URL("https://api.callmebot.com/signal/send.php");
-        url.searchParams.set("phone", recipientPhone.trim());
-        url.searchParams.set("apikey", apiKey.trim());
-        url.searchParams.set("text", briefing.signalMessageText);
-        await fetch(url.toString(), { mode: "no-cors" });
-        setStatusMsg(
-          "Signal-Nachricht über CallMeBot ausgelöst! 💬"
-        );
-        return;
-      }
-
-      setErrorMsg("Bitte prüfe deinen 6-stelligen Signal API-Key.");
+      setStatusMsg(
+        `Signal-Nachricht an „${cleanPhone}“ gesendet! Checke deine Signal-App 💬`
+      );
     } catch {
-      if (apiKey.trim()) {
-        try {
-          const url = new URL("https://api.callmebot.com/signal/send.php");
-          url.searchParams.set("phone", recipientPhone.trim());
-          url.searchParams.set("apikey", apiKey.trim());
-          url.searchParams.set("text", briefing.signalMessageText);
-          await fetch(url.toString(), { mode: "no-cors" });
-          setStatusMsg(
-            "Signal-Nachricht über CallMeBot ausgelöst! 💬"
-          );
-          return;
-        } catch {
-          // fallthrough
-        }
+      try {
+        const fallbackUrl = buildCallMeBotUrl("api.callmebot.com");
+        await fetch(fallbackUrl, { mode: "no-cors", cache: "no-store" });
+        setStatusMsg(
+          `Signal-Nachricht an „${cleanPhone}“ gesendet! Checke deine Signal-App 💬`
+        );
+      } catch {
+        setErrorMsg(
+          "Dein Browser/Adblocker hat den Hintergrund-Aufruf blockiert — klicke unten auf „Direkt-Link öffnen“."
+        );
       }
-      setErrorMsg("Netzwerkfehler beim Senden der Signal-Nachricht.");
     } finally {
       setIsSending(false);
     }
   }
+
+  const canSend =
+    recipientPhone.trim().length >= 4 && apiKey.trim().length >= 2;
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true">
@@ -160,25 +182,18 @@ export function MobileAndSignalModal({
               padding: "1rem",
               borderRadius: 16,
               border: "1px solid rgba(203, 166, 247, 0.3)",
-              fontSize: "0.83rem",
+              fontSize: "0.82rem",
               display: "flex",
               flexDirection: "column",
               gap: "0.45rem",
             }}
           >
             <strong style={{ color: "var(--pastel-lavender)" }}>
-              So bekommst du in 30 Sekunden deinen kostenlosen Signal API-Key:
+              Wichtig bei CallMeBot Signal (UUID vs. Telefonnummer):
             </strong>
             <div>
-              <strong>1.</strong> Speichere{" "}
-              <code style={{ color: "var(--pastel-mint)", fontWeight: 800 }}>
-                +34 644 52 74 88
-              </code>{" "}
-              als Kontakt (z. B. „Signal Bot“).
-            </div>
-            <div>
-              <strong>2.</strong> Sende diesem Kontakt in <strong>Signal</strong>{" "}
-              exakt diese Nachricht:
+              Wenn CallMeBot dir in Signal geantwortet hat, schickt er dir eine
+              Beispiel-URL wie:
               <div
                 style={{
                   marginTop: 4,
@@ -186,16 +201,20 @@ export function MobileAndSignalModal({
                   background: "var(--bg-input)",
                   borderRadius: 8,
                   fontFamily: "monospace",
+                  fontSize: "0.74rem",
                   color: "var(--pastel-peach)",
-                  userSelect: "all",
+                  wordBreak: "break-all",
                 }}
               >
-                I allow callmebot to send me messages
+                https://signal.callmebot.com/signal/send.php?phone=DEINE_UUID_ODER_NUMMER&amp;apikey=DEIN_KEY
               </div>
             </div>
-            <div>
-              <strong>3.</strong> Der Bot antwortet dir sofort mit{" "}
-              <code>Your APIKEY is 123456</code>.
+            <div style={{ color: "var(--text-secondary)" }}>
+              💡 <strong>Geheimtipp:</strong> Kopiere einfach die{" "}
+              <strong>komplette URL</strong> aus der Signal-Nachricht von
+              CallMeBot in das erste Feld unten — Schym liest deine{" "}
+              <code>phone</code> / <code>UUID</code> und den{" "}
+              <code>apikey</code> automatisch daraus aus!
             </div>
           </div>
 
@@ -227,42 +246,64 @@ export function MobileAndSignalModal({
           <form className="form-stack" onSubmit={handleSendSignal}>
             <div className="form-row-2">
               <label className="field-label">
-                Deine Signal-Nummer (+49...)
+                CallMeBot Link ODER Nummer / UUID
                 <input
                   type="text"
                   className="field-input"
-                  placeholder="+491701234567"
+                  placeholder="+4917... oder UUID oder ganzer Link"
                   value={recipientPhone}
-                  onChange={(e) => setRecipientPhone(e.target.value)}
+                  onChange={(e) => handleSmartInput("phone", e.target.value)}
                   required
                 />
               </label>
 
               <label className="field-label">
-                Dein 6-stelliger API-Key
+                Dein API-Key (z. B. 123456)
                 <input
                   type="text"
                   className="field-input"
-                  placeholder="z.B. 123456"
+                  placeholder="API-Key aus Signal"
                   value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
+                  onChange={(e) => handleSmartInput("key", e.target.value)}
                   required
                 />
               </label>
             </div>
 
-            <button
-              type="submit"
-              className="pastel-btn btn-lavender"
-              disabled={isSending}
-            >
-              <Send size={15} />
-              <span>
-                {isSending
-                  ? "Sende an Signal..."
-                  : "Heutiges Briefing jetzt an Signal senden"}
-              </span>
-            </button>
+            <div style={{ display: "flex", gap: "0.55rem", flexWrap: "wrap" }}>
+              <button
+                type="submit"
+                className="pastel-btn btn-lavender"
+                style={{ flex: 1 }}
+                disabled={isSending || !canSend}
+              >
+                <Send size={15} />
+                <span>
+                  {isSending
+                    ? "Sende an Signal..."
+                    : "Jetzt Briefing an Signal senden"}
+                </span>
+              </button>
+
+              {canSend && (
+                <a
+                  href={buildCallMeBotUrl("signal.callmebot.com")}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="pill-tab"
+                  style={{
+                    textDecoration: "none",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 5,
+                  }}
+                  title="Öffnet den CallMeBot-Versand direkt im neuen Tab (zeigt exakten Status)"
+                >
+                  <span>Direkt-Test ↗</span>
+                  <ExternalLink size={13} />
+                </a>
+              )}
+            </div>
           </form>
 
           <div

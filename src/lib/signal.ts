@@ -44,18 +44,32 @@ export function isAllowedSignalCliEndpoint(rawUrl: string): boolean {
   }
 }
 
+export function normalizeSignalRecipient(raw: string): string {
+  const cleaned = raw.trim().replace(/\s+/g, "");
+  // If it's a German 01... mobile number without +49, convert to +49...
+  if (/^0[1-9][0-9]{6,14}$/.test(cleaned)) {
+    return `+49${cleaned.slice(1)}`;
+  }
+  // If numeric without leading +, add +
+  if (/^[1-9][0-9]{7,15}$/.test(cleaned)) {
+    return `+${cleaned}`;
+  }
+  return cleaned;
+}
+
 export async function dispatchSignalMessage(
   cfg: SignalSendConfig
 ): Promise<SignalSendResult> {
   if (cfg.mode === "callmebot") {
-    if (!cfg.apiKey || cfg.apiKey.trim().length < 3) {
+    if (!cfg.apiKey || cfg.apiKey.trim().length < 2) {
       return {
         ok: false,
         error: "CallMeBot API-Key fehlt.",
       };
     }
-    const url = new URL("https://api.callmebot.com/signal/send.php");
-    url.searchParams.set("phone", cfg.recipientPhone.trim());
+    const phoneOrUuid = normalizeSignalRecipient(cfg.recipientPhone);
+    const url = new URL("https://signal.callmebot.com/signal/send.php");
+    url.searchParams.set("phone", phoneOrUuid);
     url.searchParams.set("apikey", cfg.apiKey.trim());
     url.searchParams.set("text", cfg.message);
 

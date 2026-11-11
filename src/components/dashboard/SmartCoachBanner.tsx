@@ -10,11 +10,16 @@ import {
   Send,
   Bell,
   CheckCircle2,
+  FlaskConical,
+  UserCheck,
 } from "lucide-react";
-import type { DailyCoachBriefing } from "@/lib/coach";
+import type { AthleteProfile, DailyCoachBriefing } from "@/lib/coach";
 
 interface SmartCoachBannerProps {
   briefing: DailyCoachBriefing;
+  profile: AthleteProfile;
+  onUpdateProfile: (next: AthleteProfile) => void;
+  onApplyScienceUpgrade: () => Promise<void>;
   onStartGym: () => void;
   onStartCardio: () => void;
   onOpenMobileAndSignal: () => void;
@@ -22,12 +27,18 @@ interface SmartCoachBannerProps {
 
 export function SmartCoachBanner({
   briefing,
+  profile,
+  onUpdateProfile,
+  onApplyScienceUpgrade,
   onStartGym,
   onStartCardio,
   onOpenMobileAndSignal,
 }: SmartCoachBannerProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [openDrawer, setOpenDrawer] = useState<"none" | "habits" | "science">(
+    "none"
+  );
   const [notifStatus, setNotifStatus] = useState<string | null>(null);
+  const [upgradeDone, setUpgradeDone] = useState(false);
 
   async function enableBrowserReminder() {
     if (typeof window === "undefined" || !("Notification" in window)) {
@@ -36,7 +47,7 @@ export function SmartCoachBanner({
     }
     const perm = await Notification.requestPermission();
     if (perm === "granted") {
-      new Notification("Schym Smart Coach 💪", {
+      new Notification("Schym Science Coach 💪", {
         body: `${briefing.headline} — ${briefing.subline}`,
       });
       setNotifStatus("Lokale Browser-Erinnerung aktiviert!");
@@ -47,42 +58,42 @@ export function SmartCoachBanner({
 
   return (
     <section
-      className="panel-card"
+      className="panel-card pro-glass-card"
       style={{
-        marginBottom: "0.85rem",
-        padding: "0.9rem 1.15rem",
+        marginBottom: "0.95rem",
+        padding: "1rem 1.25rem",
         background:
-          "linear-gradient(135deg, rgba(203, 166, 247, 0.12) 0%, rgba(166, 227, 161, 0.08) 100%)",
-        border: "1px solid rgba(203, 166, 247, 0.28)",
+          "linear-gradient(135deg, rgba(203, 166, 247, 0.14) 0%, rgba(34, 36, 54, 0.92) 55%, rgba(166, 227, 161, 0.09) 100%)",
+        border: "1px solid rgba(203, 166, 247, 0.32)",
       }}
     >
-      {/* Compact Single Row */}
+      {/* Top Row: Compact Coach Headline + Actions */}
       <div
         style={{
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
           flexWrap: "wrap",
-          gap: "0.75rem",
+          gap: "0.85rem",
         }}
       >
         <div
           style={{
             display: "flex",
             alignItems: "center",
-            gap: "0.65rem",
+            gap: "0.75rem",
             flex: 1,
-            minWidth: 240,
-            cursor: "pointer",
+            minWidth: 260,
           }}
-          onClick={() => setIsExpanded((v) => !v)}
         >
           <span
             style={{
-              width: 34,
-              height: 34,
-              borderRadius: 10,
-              background: "rgba(203, 166, 247, 0.18)",
+              width: 40,
+              height: 40,
+              borderRadius: 12,
+              background:
+                "linear-gradient(135deg, rgba(203, 166, 247, 0.25), rgba(166, 227, 161, 0.2))",
+              border: "1px solid rgba(203, 166, 247, 0.35)",
               display: "inline-flex",
               alignItems: "center",
               justifyContent: "center",
@@ -90,30 +101,73 @@ export function SmartCoachBanner({
               flexShrink: 0,
             }}
           >
-            <Sparkles size={17} />
+            <Sparkles size={19} />
           </span>
-          <div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
             <div
               style={{
-                fontSize: "0.95rem",
+                display: "flex",
+                alignItems: "center",
+                gap: "0.5rem",
+                flexWrap: "wrap",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "0.68rem",
+                  fontWeight: 800,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.06em",
+                  padding: "0.14rem 0.55rem",
+                  borderRadius: 999,
+                  background: "rgba(203, 166, 247, 0.18)",
+                  color: "var(--pastel-lavender)",
+                }}
+              >
+                Behavioral &amp; Science Coach
+              </span>
+              <span
+                style={{
+                  fontSize: "0.73rem",
+                  color: "var(--pastel-mint)",
+                  fontWeight: 700,
+                }}
+              >
+                Gelernt: ~{briefing.learnedGymPerWeek}× Gym/Woche • Ø{" "}
+                {briefing.learnedAvgRestDays} Tage Pause
+              </span>
+            </div>
+
+            <div
+              style={{
+                fontSize: "0.98rem",
                 fontWeight: 800,
                 color: "var(--text-primary)",
+                letterSpacing: "-0.01em",
               }}
             >
               {briefing.headline}
             </div>
-            <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>
+            <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
               {briefing.subline}
             </div>
           </div>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "0.45rem",
+            flexWrap: "wrap",
+          }}
+        >
           {briefing.recommendedAction === "gym" ? (
             <button
               type="button"
               className="pastel-btn btn-lavender"
-              style={{ padding: "0.5rem 0.95rem", fontSize: "0.8rem" }}
+              style={{ padding: "0.52rem 1rem", fontSize: "0.81rem" }}
               onClick={onStartGym}
             >
               <Dumbbell size={15} />
@@ -127,7 +181,7 @@ export function SmartCoachBanner({
             <button
               type="button"
               className="pastel-btn btn-mint"
-              style={{ padding: "0.5rem 0.95rem", fontSize: "0.8rem" }}
+              style={{ padding: "0.52rem 1rem", fontSize: "0.81rem" }}
               onClick={onStartCardio}
             >
               <HeartPulse size={15} />
@@ -137,26 +191,55 @@ export function SmartCoachBanner({
 
           <button
             type="button"
-            className="pill-tab"
+            className={`pill-tab ${openDrawer === "science" ? "active" : ""}`}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 5,
+              padding: "0.46rem 0.8rem",
+            }}
+            onClick={() =>
+              setOpenDrawer((d) => (d === "science" ? "none" : "science"))
+            }
+          >
+            <FlaskConical size={14} />
+            <span>Studien &amp; Plan-Analyse</span>
+            {openDrawer === "science" ? (
+              <ChevronUp size={13} />
+            ) : (
+              <ChevronDown size={13} />
+            )}
+          </button>
+
+          <button
+            type="button"
+            className={`pill-tab ${openDrawer === "habits" ? "active" : ""}`}
             style={{
               display: "inline-flex",
               alignItems: "center",
               gap: 4,
-              padding: "0.45rem 0.75rem",
+              padding: "0.46rem 0.75rem",
             }}
-            onClick={() => setIsExpanded((v) => !v)}
+            onClick={() =>
+              setOpenDrawer((d) => (d === "habits" ? "none" : "habits"))
+            }
           >
-            <span>Wochen-Rhythmus</span>
-            {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            <span>Wochen-Verhalten</span>
+            {openDrawer === "habits" ? (
+              <ChevronUp size={13} />
+            ) : (
+              <ChevronDown size={13} />
+            )}
           </button>
         </div>
       </div>
 
-      {/* Expandable Details on Click */}
-      {isExpanded && (
+      {/* DRAWER 1: LEARNED WEEKDAY HABIT RHYTHM (Top-K only!) */}
+      {openDrawer === "habits" && (
         <div
+          className="smooth-unfold"
           style={{
-            marginTop: "0.85rem",
+            marginTop: "0.9rem",
             paddingTop: "0.85rem",
             borderTop: "1px solid var(--border-subtle)",
             display: "flex",
@@ -166,6 +249,24 @@ export function SmartCoachBanner({
         >
           <div
             style={{
+              fontSize: "0.78rem",
+              color: "var(--text-secondary)",
+            }}
+          >
+            <strong>Wie der Coach aus deinem Verhalten lernt:</strong> Statt
+            jeden Tag mit 1 Training als Sporttag zu werten, filtert der
+            Algorithmus deine{" "}
+            <strong style={{ color: "var(--pastel-lavender)" }}>
+              Top-{Math.max(1, Math.round(briefing.learnedGymPerWeek))} Stamm-Trainingstage
+            </strong>{" "}
+            heraus (aus 11 Sessions: <strong>Donnerstag</strong> &amp;{" "}
+            <strong>Sonntag/Freitag</strong>, mit Ø{" "}
+            <strong>{briefing.learnedAvgRestDays} Tagen Pause</strong> zwischen
+            Einheiten):
+          </div>
+
+          <div
+            style={{
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",
@@ -173,7 +274,7 @@ export function SmartCoachBanner({
               gap: "0.5rem",
             }}
           >
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem" }}>
               {briefing.weekdayHabits.map((h) => {
                 const colorMap = {
                   gym: "var(--pastel-lavender)",
@@ -186,10 +287,13 @@ export function SmartCoachBanner({
                   <span
                     key={h.weekdayShort}
                     style={{
-                      fontSize: "0.73rem",
-                      padding: "0.2rem 0.55rem",
+                      fontSize: "0.74rem",
+                      padding: "0.24rem 0.65rem",
                       borderRadius: 999,
-                      background: "var(--bg-soft)",
+                      background:
+                        h.dominantType !== "rest"
+                          ? "rgba(203, 166, 247, 0.14)"
+                          : "var(--bg-soft)",
                       border:
                         h.dominantType !== "rest"
                           ? `1px solid ${col}`
@@ -197,7 +301,9 @@ export function SmartCoachBanner({
                     }}
                   >
                     <strong>{h.weekdayShort}:</strong>{" "}
-                    <span style={{ color: col, fontWeight: 700 }}>{h.label}</span>
+                    <span style={{ color: col, fontWeight: 700 }}>
+                      {h.label}
+                    </span>
                   </span>
                 );
               })}
@@ -218,7 +324,7 @@ export function SmartCoachBanner({
                 onClick={onOpenMobileAndSignal}
               >
                 <Send size={13} style={{ display: "inline", marginRight: 4 }} />
-                Per Signal ans Handy senden
+                Signal-Bot testen
               </button>
             </div>
           </div>
@@ -237,6 +343,316 @@ export function SmartCoachBanner({
               <span>{notifStatus}</span>
             </div>
           )}
+        </div>
+      )}
+
+      {/* DRAWER 2: SPORTS SCIENCE LAB & ATHLETE PROFILE */}
+      {openDrawer === "science" && (
+        <div
+          className="smooth-unfold"
+          style={{
+            marginTop: "0.95rem",
+            paddingTop: "0.95rem",
+            borderTop: "1px solid var(--border-subtle)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "1rem",
+          }}
+        >
+          {/* Athlete Profile Bar */}
+          <div
+            style={{
+              background: "var(--bg-soft)",
+              padding: "0.85rem 1rem",
+              borderRadius: 14,
+              border: "1px solid var(--border-subtle)",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: "0.75rem",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.5rem",
+                fontSize: "0.82rem",
+                fontWeight: 800,
+              }}
+            >
+              <UserCheck size={16} color="var(--pastel-mint)" />
+              <span>Dein Athleten-Profil (für Studien-Formeln):</span>
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "0.6rem",
+                alignItems: "center",
+              }}
+            >
+              <label
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  fontSize: "0.76rem",
+                  color: "var(--text-secondary)",
+                }}
+              >
+                <span>Gewicht (kg):</span>
+                <input
+                  type="number"
+                  min={40}
+                  max={180}
+                  className="field-input"
+                  style={{ width: 68, padding: "0.3rem 0.5rem" }}
+                  value={profile.weightKg}
+                  onChange={(e) =>
+                    onUpdateProfile({
+                      ...profile,
+                      weightKg: Number(e.target.value) || 75,
+                    })
+                  }
+                />
+              </label>
+
+              <label
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  fontSize: "0.76rem",
+                  color: "var(--text-secondary)",
+                }}
+              >
+                <span>Größe (cm):</span>
+                <input
+                  type="number"
+                  min={140}
+                  max={220}
+                  className="field-input"
+                  style={{ width: 72, padding: "0.3rem 0.5rem" }}
+                  value={profile.heightCm}
+                  onChange={(e) =>
+                    onUpdateProfile({
+                      ...profile,
+                      heightCm: Number(e.target.value) || 180,
+                    })
+                  }
+                />
+              </label>
+
+              <span
+                className="badge badge-cardio"
+                style={{ fontSize: "0.73rem" }}
+              >
+                Protein-Ziel: {Math.round(profile.weightKg * 1.8)} g/Tag •
+                Kreatin: {Math.max(3, Math.round(profile.weightKg * 0.05))} g/Tag
+              </span>
+            </div>
+          </div>
+
+          {/* Fractional Weekly Set Volume per Muscle (Pelland et al. 2024) */}
+          <div
+            style={{
+              background: "var(--bg-soft)",
+              padding: "0.9rem 1rem",
+              borderRadius: 14,
+              border: "1px solid var(--border-subtle)",
+              display: "flex",
+              flexDirection: "column",
+              gap: "0.6rem",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: "0.5rem",
+              }}
+            >
+              <strong style={{ fontSize: "0.84rem" }}>
+                Effektives Wochen-Volumen pro Muskel (Pelland et al., 2024
+                Fractional Counting):
+              </strong>
+              <span
+                style={{ fontSize: "0.74rem", color: "var(--text-secondary)" }}
+              >
+                Ziel-Korridor für Hypertrophie: 8–16 Sätze / Woche
+              </span>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+                gap: "0.55rem",
+              }}
+            >
+              {briefing.muscleVolumes.map((mv) => {
+                const pct = Math.min(
+                  100,
+                  Math.round((mv.weeklyFractionalSets / mv.targetMaxSets) * 100)
+                );
+                const barColor =
+                  mv.status === "optimal"
+                    ? "var(--pastel-mint)"
+                    : mv.status === "low"
+                      ? "var(--pastel-peach)"
+                      : "var(--pastel-lavender)";
+                return (
+                  <div
+                    key={mv.muscleId}
+                    style={{
+                      background: "rgba(255,255,255,0.03)",
+                      padding: "0.55rem 0.7rem",
+                      borderRadius: 10,
+                      border: "1px solid var(--border-subtle)",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        fontSize: "0.76rem",
+                        marginBottom: 4,
+                      }}
+                    >
+                      <strong>{mv.label}</strong>
+                      <span style={{ color: barColor, fontWeight: 700 }}>
+                        {mv.weeklyFractionalSets} / {mv.targetMinSets}–
+                        {mv.targetMaxSets} Sätze
+                      </span>
+                    </div>
+                    <div className="progress-track" style={{ height: 6 }}>
+                      <div
+                        className="progress-fill"
+                        style={{ width: `${pct}%`, background: barColor }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Peer-Reviewed Study Insights Grid */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+              gap: "0.75rem",
+            }}
+          >
+            {briefing.scienceInsights.map((ins) => (
+              <div
+                key={ins.id}
+                style={{
+                  background: "var(--bg-soft)",
+                  padding: "0.9rem 1rem",
+                  borderRadius: 14,
+                  border: `1px solid ${ins.badgeColor}44`,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "0.4rem",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: "0.84rem",
+                    fontWeight: 800,
+                    color: ins.badgeColor,
+                  }}
+                >
+                  {ins.title}
+                </div>
+                <p
+                  style={{
+                    fontSize: "0.78rem",
+                    color: "var(--text-secondary)",
+                    margin: 0,
+                  }}
+                >
+                  <strong>Analyse deiner Daten:</strong> {ins.finding}
+                </p>
+                <p
+                  style={{
+                    fontSize: "0.78rem",
+                    color: "var(--text-primary)",
+                    margin: 0,
+                  }}
+                >
+                  <strong>Plan-Empfehlung:</strong> {ins.recommendation}
+                </p>
+                <span
+                  style={{
+                    fontSize: "0.69rem",
+                    color: "var(--text-muted)",
+                    fontStyle: "italic",
+                    marginTop: "auto",
+                  }}
+                >
+                  📚 Studie: {ins.citation}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          {/* 1-Click Science Plan Upgrade */}
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: "0.75rem",
+              background: "rgba(203, 166, 247, 0.1)",
+              padding: "0.75rem 1rem",
+              borderRadius: 12,
+              border: "1px solid rgba(203, 166, 247, 0.3)",
+            }}
+          >
+            <span style={{ fontSize: "0.8rem" }}>
+              💡 Soll ich deine beiden Vorlagen{" "}
+              <strong>„Drücken“ &amp; „Ziehen“</strong> direkt nach diesen
+              Studien upgraden (2×/Woche Brust- &amp; Trizeps-Reiz ergänzen)?
+            </span>
+
+            {upgradeDone ? (
+              <span
+                style={{
+                  color: "var(--pastel-mint)",
+                  fontSize: "0.8rem",
+                  fontWeight: 800,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 5,
+                }}
+              >
+                <CheckCircle2 size={15} /> Pläne „Drücken“ &amp; „Ziehen“
+                wissenschaftlich optimiert!
+              </span>
+            ) : (
+              <button
+                type="button"
+                className="pastel-btn btn-lavender"
+                style={{ padding: "0.48rem 0.95rem", fontSize: "0.79rem" }}
+                onClick={async () => {
+                  await onApplyScienceUpgrade();
+                  setUpgradeDone(true);
+                }}
+              >
+                <Sparkles size={14} />
+                <span>Pläne jetzt nach Studien optimieren</span>
+              </button>
+            )}
+          </div>
         </div>
       )}
     </section>

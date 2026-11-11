@@ -22,7 +22,11 @@ import {
   computeWeeklySummary,
   formatPaceMinPerKm,
 } from "@/lib/metrics";
-import { computeCoachBriefing } from "@/lib/coach";
+import {
+  computeCoachBriefing,
+  DEFAULT_ATHLETE_PROFILE,
+  type AthleteProfile,
+} from "@/lib/coach";
 import { getSportDefinition } from "@/lib/sports-catalog";
 import { inferMuscleGroupFromExercise } from "@/lib/muscles";
 import { buildPreseededDataset } from "@/lib/hevy-seed";
@@ -44,6 +48,7 @@ interface FitnessDashboardProps {
 }
 
 const HYBRID_STORAGE_KEY = "schym_hybrid_dataset_v2";
+const PROFILE_STORAGE_KEY = "schym_athlete_profile_v1";
 
 export function FitnessDashboard({
   initialData,
@@ -51,6 +56,9 @@ export function FitnessDashboard({
 }: FitnessDashboardProps) {
   const [data, setData] = useState<FitnessDataset>(() =>
     initialData.gym.length > 0 ? initialData : buildPreseededDataset()
+  );
+  const [profile, setProfile] = useState<AthleteProfile>(
+    DEFAULT_ATHLETE_PROFILE
   );
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -77,10 +85,78 @@ export function FitnessDashboard({
           setData(parsed);
         }
       }
+      const savedProf = window.localStorage.getItem(PROFILE_STORAGE_KEY);
+      if (savedProf) {
+        const parsedProf = JSON.parse(savedProf) as AthleteProfile;
+        if (parsedProf && parsedProf.weightKg > 30) {
+          setProfile(parsedProf);
+        }
+      }
     } catch {
       // ignore storage read error
     }
   }, [initialData.gym.length]);
+
+  function handleUpdateProfile(next: AthleteProfile) {
+    setProfile(next);
+    try {
+      window.localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      // ignore
+    }
+  }
+
+  async function handleApplyScienceUpgrade() {
+    // Upgrade "Drücken" with Overhead Triceps Extension (Maeo et al. 2023)
+    // and "Ziehen" with Chest Press / Flys for 2x/week Chest & Triceps frequency (Schoenfeld et al. 2016)
+    for (const tpl of data.templates) {
+      const lower = tpl.name.toLowerCase();
+      if (lower.includes("drücken")) {
+        const hasTriceps = tpl.exercises.some((e) =>
+          e.name.toLowerCase().includes("trizeps")
+        );
+        const nextEx: WorkoutTemplateExercise[] = hasTriceps
+          ? tpl.exercises
+          : [
+              ...tpl.exercises,
+              {
+                name: "Trizepsdrücken Überkopf (Kabelzug)",
+                muscleGroup: "triceps",
+                targetSets: 3,
+                targetReps: 12,
+                defaultWeightKg: 12,
+              },
+            ];
+        await submitEntry("template", { name: tpl.name, exercises: nextEx });
+      } else if (lower.includes("ziehen")) {
+        const hasChest = tpl.exercises.some(
+          (e) =>
+            e.name.toLowerCase().includes("brust") ||
+            e.name.toLowerCase().includes("fliegende")
+        );
+        const nextEx: WorkoutTemplateExercise[] = hasChest
+          ? tpl.exercises
+          : [
+              ...tpl.exercises,
+              {
+                name: "Brustpresse (Maschine)",
+                muscleGroup: "chest",
+                targetSets: 3,
+                targetReps: 10,
+                defaultWeightKg: 23,
+              },
+              {
+                name: "Seitheben (Maschine)",
+                muscleGroup: "shoulders",
+                targetSets: 3,
+                targetReps: 12,
+                defaultWeightKg: 10,
+              },
+            ];
+        await submitEntry("template", { name: tpl.name, exercises: nextEx });
+      }
+    }
+  }
 
   function persistDataset(next: FitnessDataset) {
     setData(next);
@@ -98,7 +174,7 @@ export function FitnessDashboard({
     data.bouldering
   );
 
-  const coachBriefing = computeCoachBriefing(data, todayIso);
+  const coachBriefing = computeCoachBriefing(data, todayIso, profile);
 
   // Group Gym entries by (sessionDate + workoutFocus) so 70 flat rows become 11 clean collapsible Workout Days!
   const groupedGymWorkouts = useMemo(() => {
@@ -419,9 +495,12 @@ export function FitnessDashboard({
         </div>
       )}
 
-      {/* 1. Compact Smart Coach Bar (click to expand weekday rhythm) */}
+      {/* 1. Compact Smart Coach Bar (click to expand weekday rhythm & science lab) */}
       <SmartCoachBanner
         briefing={coachBriefing}
+        profile={profile}
+        onUpdateProfile={handleUpdateProfile}
+        onApplyScienceUpgrade={handleApplyScienceUpgrade}
         onStartGym={() => setIsGymModalOpen(true)}
         onStartCardio={() => setIsQuickSportModalOpen(true)}
         onOpenMobileAndSignal={() => setIsMobileSignalModalOpen(true)}
