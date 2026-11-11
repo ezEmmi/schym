@@ -95,12 +95,34 @@ const globalForDb = globalThis as unknown as {
   sqliteInstance?: DatabaseSync;
 };
 
-export const sqlite = globalForDb.sqliteInstance ?? initializeSqlite();
+function ensureSchemaMigrations(dbInstance: DatabaseSync): DatabaseSync {
+  dbInstance.exec(`
+    CREATE TABLE IF NOT EXISTS workout_templates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      exercises_json TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+  `);
+  try {
+    dbInstance.exec(
+      "ALTER TABLE gym_entries ADD COLUMN muscle_group TEXT NOT NULL DEFAULT 'chest';"
+    );
+  } catch {
+    // Column already exists
+  }
+  return dbInstance;
+}
+
+export const sqlite = ensureSchemaMigrations(
+  globalForDb.sqliteInstance ?? initializeSqlite()
+);
 if (process.env.NODE_ENV !== "production") {
   globalForDb.sqliteInstance = sqlite;
 }
 
 export function getAllFitnessData(): FitnessDataset {
+  ensureSchemaMigrations(sqlite);
   const gymRows = sqlite
     .prepare(
       `SELECT id, session_date, workout_focus, exercise_name, muscle_group, sets, reps, weight_kg, rpe, estimated_1rm, notes, created_at

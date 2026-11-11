@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { RefreshCw, CheckCircle2, KeyRound, FileJson, X } from "lucide-react";
+import { RefreshCw, CheckCircle2, KeyRound, FileJson, X, ExternalLink } from "lucide-react";
 import type { FitnessDataset } from "@/lib/db/schema";
 
 interface StravaSyncModuleProps {
@@ -18,7 +18,12 @@ export function StravaSyncModule({
   onClose,
 }: StravaSyncModuleProps) {
   const [accessToken, setAccessToken] = useState("");
-  const [perPage, setPerPage] = useState("20");
+  const [clientId, setClientId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
+  const [refreshToken, setRefreshToken] = useState("");
+  const [useRefreshFlow, setUseRefreshFlow] = useState(false);
+
+  const [perPage, setPerPage] = useState("30");
   const [rawJson, setRawJson] = useState("");
   const [isSyncing, setIsSyncing] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -28,14 +33,24 @@ export function StravaSyncModule({
     setStatusMessage(null);
     setIsSyncing(true);
     try {
+      const bodyPayload = useRefreshFlow
+        ? {
+            mode: "refresh" as const,
+            clientId: clientId.trim(),
+            clientSecret: clientSecret.trim(),
+            refreshToken: refreshToken.trim(),
+            perPage: Number(perPage),
+          }
+        : {
+            mode: "token" as const,
+            accessToken: accessToken.trim(),
+            perPage: Number(perPage),
+          };
+
       const res = await fetch("/api/strava/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mode: "token",
-          accessToken,
-          perPage: Number(perPage),
-        }),
+        body: JSON.stringify(bodyPayload),
       });
       const json = (await res.json()) as {
         ok: boolean;
@@ -48,6 +63,8 @@ export function StravaSyncModule({
         return;
       }
       setAccessToken("");
+      setClientSecret("");
+      setRefreshToken("");
       setStatusMessage(
         `${json.importedCount ?? 0} Aktivitäten (inkl. Hevy Gym-Pläne) von Strava geladen!`
       );
@@ -93,7 +110,6 @@ export function StravaSyncModule({
     }
   }
 
-  // Realistic sample showing how a Hevy Gym workout synced via Strava + Cardio run looks when imported
   const sampleHevyAndStravaActivities = [
     {
       name: "Oberkörper & Maschinen (Hevy)",
@@ -125,7 +141,7 @@ export function StravaSyncModule({
             alignItems: "center",
             paddingBottom: "1rem",
             borderBottom: "1px solid var(--border-subtle)",
-            marginBottom: "1.25rem",
+            marginBottom: "1.1rem",
           }}
         >
           <div>
@@ -133,7 +149,7 @@ export function StravaSyncModule({
               Strava &amp; Hevy Sync
             </h2>
             <p style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
-              Liest deine Läufe, Sportarten und sogar deine Hevy-Übungen &amp;
+              Liest deine Läufe, Sportarten und deine Hevy-Übungen &amp;
               Gewichte direkt aus Strava aus!
             </p>
           </div>
@@ -147,6 +163,60 @@ export function StravaSyncModule({
               <X size={20} />
             </button>
           )}
+        </div>
+
+        {/* Step-by-Step Guide Box */}
+        <div
+          style={{
+            background: "rgba(203, 166, 247, 0.08)",
+            border: "1px solid rgba(203, 166, 247, 0.25)",
+            borderRadius: 16,
+            padding: "0.95rem 1.1rem",
+            marginBottom: "1.2rem",
+            fontSize: "0.81rem",
+            color: "var(--text-secondary)",
+          }}
+        >
+          <div
+            style={{
+              fontWeight: 800,
+              color: "var(--pastel-lavender)",
+              marginBottom: "0.35rem",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            <ExternalLink size={15} />
+            <span>So verbindest du dein Strava in 30 Sekunden:</span>
+          </div>
+          <ol style={{ paddingLeft: "1.2rem", display: "flex", flexDirection: "column", gap: 4 }}>
+            <li>
+              Öffne{" "}
+              <a
+                href="https://www.strava.com/settings/api"
+                target="_blank"
+                rel="noreferrer"
+                style={{ color: "var(--pastel-mint)", fontWeight: 700 }}
+              >
+                strava.com/settings/api
+              </a>{" "}
+              (falls du noch keine App dort hast: Name z. B. <code>Schym</code>,
+              Website <code>http://localhost</code>, Callback Domain{" "}
+              <code>localhost</code>).
+            </li>
+            <li>
+              Kopiere dort deinen <strong>Access Token</strong> (oder nutze
+              Client ID + Client Secret + Refresh Token, falls der Token
+              abgelaufen ist).
+            </li>
+            <li>
+              <strong>Wichtig für private Workouts:</strong> Wenn dein Standard-Token nur{" "}
+              <code>read</code> hat, klicke unten auf{" "}
+              <strong>„Mit Client ID &amp; Refresh Token verbinden“</strong> —
+              damit holt sich Schym automatisch einen frischen Token!
+            </li>
+          </ol>
         </div>
 
         {statusMessage && (
@@ -178,28 +248,80 @@ export function StravaSyncModule({
               border: "1px solid var(--border-subtle)",
             }}
           >
-            <h3 className="panel-title">
-              <KeyRound size={18} color="var(--pastel-peach)" />
-              Direkter Strava API Sync
-            </h3>
-            <p className="panel-desc">
-              Gib deinen Strava Access Token ein (unter{" "}
-              <code>strava.com/settings/api</code>). Er wird nur im RAM genutzt
-              und niemals gespeichert.
-            </p>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: "0.5rem",
+              }}
+            >
+              <h3 className="panel-title">
+                <KeyRound size={18} color="var(--pastel-peach)" />
+                Direkter Strava Sync
+              </h3>
+              <button
+                type="button"
+                className="pill-tab"
+                style={{ fontSize: "0.72rem", padding: "0.25rem 0.65rem" }}
+                onClick={() => setUseRefreshFlow(!useRefreshFlow)}
+              >
+                {useRefreshFlow
+                  ? "Nur Access Token"
+                  : "Client ID + Secret nutzen"}
+              </button>
+            </div>
 
             <form className="form-stack" onSubmit={handleTokenSync}>
-              <label className="field-label">
-                Strava OAuth Access Token
-                <input
-                  type="password"
-                  className="field-input"
-                  placeholder="Bearer Token einfügen..."
-                  value={accessToken}
-                  onChange={(e) => setAccessToken(e.target.value)}
-                  required
-                />
-              </label>
+              {!useRefreshFlow ? (
+                <label className="field-label">
+                  Strava Access Token
+                  <input
+                    type="password"
+                    className="field-input"
+                    placeholder="Dein Access Token von strava.com/settings/api"
+                    value={accessToken}
+                    onChange={(e) => setAccessToken(e.target.value)}
+                    required
+                  />
+                </label>
+              ) : (
+                <>
+                  <label className="field-label">
+                    Client ID
+                    <input
+                      type="text"
+                      className="field-input"
+                      placeholder="z.B. 123456"
+                      value={clientId}
+                      onChange={(e) => setClientId(e.target.value)}
+                      required
+                    />
+                  </label>
+                  <label className="field-label">
+                    Client Secret
+                    <input
+                      type="password"
+                      className="field-input"
+                      placeholder="Dein Client Secret..."
+                      value={clientSecret}
+                      onChange={(e) => setClientSecret(e.target.value)}
+                      required
+                    />
+                  </label>
+                  <label className="field-label">
+                    Refresh Token
+                    <input
+                      type="password"
+                      className="field-input"
+                      placeholder="Dein Refresh Token..."
+                      value={refreshToken}
+                      onChange={(e) => setRefreshToken(e.target.value)}
+                      required
+                    />
+                  </label>
+                </>
+              )}
 
               <label className="field-label">
                 Anzahl letzter Aktivitäten (1–100)
@@ -236,11 +358,11 @@ export function StravaSyncModule({
           >
             <h3 className="panel-title">
               <FileJson size={18} color="var(--pastel-mint)" />
-              Hevy + Strava Demo oder JSON Import
+              Hevy + Strava Vorschau &amp; JSON Import
             </h3>
             <p className="panel-desc">
-              Wenn Hevy deine Sätze in die Strava-Beschreibung schreibt, baut
-              Schym daraus automatisch deinen Gym-Plan + Muskel-Map!
+              Teste mit 1 Klick, wie Schym ein Hevy-Workout + Lauf aus Strava
+              importiert, oder füge ein Strava-JSON ein.
             </p>
 
             <div className="form-stack">
@@ -251,7 +373,7 @@ export function StravaSyncModule({
                 onClick={() => handleJsonImport(sampleHevyAndStravaActivities)}
               >
                 <RefreshCw size={15} />
-                <span>Test: Hevy Gym-Plan + Lauf aus Strava laden</span>
+                <span>Vorschau: Hevy Gym-Plan + Lauf laden</span>
               </button>
 
               <label className="field-label" style={{ marginTop: "0.35rem" }}>

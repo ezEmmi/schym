@@ -161,6 +161,15 @@ export const stravaSyncRequestSchema = z.discriminatedUnion("mode", [
     .strict(),
   z
     .object({
+      mode: z.literal("refresh"),
+      clientId: z.string().trim().min(2).max(64),
+      clientSecret: z.string().trim().min(10).max(256),
+      refreshToken: z.string().trim().min(10).max(512),
+      perPage: z.coerce.number().int().min(1).max(100).optional().default(30),
+    })
+    .strict(),
+  z
+    .object({
       mode: z.literal("json"),
       activities: z.array(stravaActivityItemSchema).min(1).max(200),
     })

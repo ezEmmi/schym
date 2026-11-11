@@ -129,14 +129,53 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { accessToken, perPage } = parsed.data;
+    let activeToken = "";
+    const perPage = parsed.data.perPage;
+
+    if (parsed.data.mode === "refresh") {
+      const tokenRes = await fetch("https://www.strava.com/oauth/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_id: parsed.data.clientId,
+          client_secret: parsed.data.clientSecret,
+          refresh_token: parsed.data.refreshToken,
+          grant_type: "refresh_token",
+        }),
+      });
+
+      if (!tokenRes.ok) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: `Strava OAuth Refresh fehlgeschlagen (HTTP ${tokenRes.status}). Bitte prüfe Client ID, Client Secret und Refresh Token.`,
+          },
+          { status: 400 }
+        );
+      }
+
+      const tokenJson = (await tokenRes.json()) as { access_token?: string };
+      if (!tokenJson.access_token) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "Strava hat keinen access_token zurückgegeben.",
+          },
+          { status: 400 }
+        );
+      }
+      activeToken = tokenJson.access_token;
+    } else {
+      activeToken = parsed.data.accessToken;
+    }
+
     const stravaUrl = new URL("https://www.strava.com/api/v3/athlete/activities");
     stravaUrl.searchParams.set("per_page", String(perPage));
 
     const response = await fetch(stravaUrl.toString(), {
       method: "GET",
       headers: {
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${activeToken}`,
         Accept: "application/json",
       },
     });
